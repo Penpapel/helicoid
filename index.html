@@ -6,7 +6,6 @@
     <title>Earth's Helicoid Trajectory</title>
     <!-- Link to Favicon -->
     <link rel="icon" href="favicon.ico" type="image/x-icon">
-    <!-- Styling -->
     <style>
         body {
             margin: 0;
@@ -20,17 +19,16 @@
             font-family: Arial, sans-serif;
         }
     </style>
+    <!-- Include Three.js and OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r155/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r155/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
     <div id="info">
         <h2>Earth's Helicoid Trajectory</h2>
         <p>Use the mouse to rotate the view.</p>
     </div>
-    <script type="module">
-        // Import Three.js and OrbitControls from a CDN
-        import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
-        import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/controls/OrbitControls.js';
-
+    <script>
         // Scene, Camera, and Renderer
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -74,7 +72,7 @@
         scene.add(trajectory);
 
         // Add Orbit Controls
-        const controls = new OrbitControls(camera, renderer.domElement);
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
 
         // Set Camera Position
         camera.position.z = 20;
