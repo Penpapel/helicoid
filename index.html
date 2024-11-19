@@ -4,14 +4,30 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Earth's Helicoid Trajectory</title>
+    <!-- Link to Favicon -->
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <!-- Styling -->
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+    </style>
 </head>
-<body style="margin: 0; overflow: hidden;">
-    <div id="info" style="position: absolute; top: 10px; left: 10px; color: white; font-family: Arial;">
+<body>
+    <div id="info">
         <h2>Earth's Helicoid Trajectory</h2>
-        <p>Use mouse to rotate the view.</p>
+        <p>Use the mouse to rotate the view.</p>
     </div>
     <script type="module">
-        // Import from CDN using absolute URLs
+        // Import Three.js and OrbitControls from a CDN
         import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
         import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/controls/OrbitControls.js';
 
@@ -69,6 +85,13 @@
             renderer.render(scene, camera);
         }
         animate();
+
+        // Adjust scene on window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
     </script>
 </body>
 </html>
