@@ -1,98 +1,1565 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Earth's Helicoid Trajectory</title>
-    <!-- Link to Favicon -->
-    <link rel="icon" href="favicon.ico" type="image/x-icon">
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-        }
-        #info {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            color: white;
-            font-family: Arial, sans-serif;
-        }
-    </style>
-    <!-- Include Three.js and OrbitControls -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r155/three.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r155/examples/js/controls/OrbitControls.js"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Dactyl</title>
+<meta name="theme-color" content="#0f1a22">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Unbounded:wght@500;700&display=swap">
+<style>
+/* Layout: a full-bleed play field, a slim readout top-left, a thumb-reach dock along the bottom, and a patch sheet that rises over the dock. One committed dark look, like an instrument in a dim room. */
+:root {
+  color-scheme: dark;
+  --ground: #0f1a22;
+  --panel: #15242e;
+  --glass: rgba(21, 36, 46, 0.88);
+  --scrim: rgba(15, 26, 34, 0.94);
+  --line: #243b49;
+  --line-hi: #3d6277;
+  --ink: #e8f1f5;
+  --ink-dim: #8aa3b1;
+  --signal: #ff7b54;
+  --on-signal: #1c0e08;
+  --wave: #8fd8ff;
+  --rec: #ff4458;
+  --font-display: 'Unbounded', 'Arial Black', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#app { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--ground); }
+#field { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+.btn {
+  font: 500 12px/1 var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--glass);
+  border: 1px solid var(--line-hi);
+  border-radius: 8px;
+  min-height: 44px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  touch-action: manipulation;
+}
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn.round { width: 44px; padding: 0; border-radius: 50%; font-size: 15px; }
+.btn:focus-visible, .chip:focus-visible, input:focus-visible { outline: 2px solid var(--wave); outline-offset: 2px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-hi); }
+.btn[aria-pressed="true"] .dot { background: var(--signal); }
+
+.hud { position: absolute; left: 0; right: 0; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; padding: 8px 16px 0; pointer-events: none; }
+.hud .btn, .hud .layers { pointer-events: auto; }
+.btn.sm { width: 36px; min-height: 36px; font-size: 13px; }
+.layers { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.layers::-webkit-scrollbar { display: none; }
+.lyr { position: relative; flex: 0 0 auto; width: 38px; height: 44px; padding: 0; border: 0; background: transparent; cursor: pointer; touch-action: manipulation; display: grid; place-items: center; }
+.lyr .dc { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--c); background: transparent; transition: transform 0.12s, background-color 0.15s, box-shadow 0.15s; }
+.lyr[aria-pressed="true"] .dc { background: var(--c); }
+.lyr.sel .dc { box-shadow: 0 0 0 3px var(--ground), 0 0 0 5px var(--c); }
+.lyr.hit .dc { transform: scale(1.22); }
+.lyr .lm { position: absolute; left: 50%; bottom: 3px; width: 12px; height: 3px; margin-left: -6px; border-radius: 2px; background: var(--c); display: none; }
+.lyr.has .lm { display: block; }
+.lyr.rec .lm { display: block; background: var(--rec); animation: blink 0.9s steps(2, jump-none) infinite; }
+.lyr:focus-visible { outline: 2px solid var(--wave); outline-offset: -2px; border-radius: 8px; }
+@keyframes blink { 50% { opacity: 0.25; } }
+.mark { display: none; }
+
+.readout { position: absolute; left: 16px; top: 92px; z-index: 2; margin: 0; display: grid; grid-template-columns: auto auto; column-gap: 14px; row-gap: 3px; font-size: 11px; letter-spacing: 0.06em; pointer-events: none; font-variant-numeric: tabular-nums; }
+.readout dt { color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.12em; }
+.readout dd { margin: 0; min-width: 11ch; }
+
+.btn.rec .dot { background: transparent; border: 2px solid var(--rec); width: 10px; height: 10px; }
+.btn.rec[data-state="armed"] { border-color: var(--rec); }
+.btn.rec[data-state="armed"] .dot { animation: blink 0.7s steps(2, jump-none) infinite; background: var(--rec); }
+.btn.rec[data-state="recording"] { border-color: var(--rec); color: var(--rec); }
+.btn.rec[data-state="recording"] .dot { background: var(--rec); }
+.chip:disabled { opacity: 0.4; cursor: default; }
+.chip.warn { border-color: var(--rec); color: var(--rec); }
+.lhead { display: flex; align-items: center; gap: 10px; }
+.lhead i { width: 14px; height: 14px; border-radius: 50%; background: var(--c); flex: none; }
+
+.dock { position: absolute; left: 16px; right: 16px; bottom: 12px; z-index: 2; display: flex; gap: 8px; pointer-events: none; }
+.dock { gap: 6px; }
+.dock .btn { flex: 1; min-width: 0; padding: 0 3px; gap: 5px; font-size: 10.5px; letter-spacing: 0.03em; pointer-events: auto; }
+
+.cap { position: absolute; left: 16px; right: 16px; bottom: 84px; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 7px; text-align: center; pointer-events: none; opacity: 0; transition: opacity 0.35s; text-shadow: 0 0 8px var(--ground), 0 0 2px var(--ground); }
+.cap.on { opacity: 1; }
+.cap-t { font: 700 13px/1 var(--font-display); letter-spacing: 0.26em; text-transform: uppercase; }
+.cap-s { max-width: 34ch; font-size: 12px; line-height: 1.45; }
+.cap-h { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-dim); }
+
+.sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 5;
+  max-height: 64%;
+  background: var(--panel);
+  border-top: 1px solid var(--line-hi);
+  border-radius: 16px 16px 0 0;
+  padding: 14px 16px 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  transform: translateY(104%);
+  visibility: hidden;
+  transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s linear 0.28s;
+}
+.sheet.open { transform: none; visibility: visible; transition-delay: 0s; }
+.sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.sheet-head h2 { margin: 0; font: 700 12px/1 var(--font-display); letter-spacing: 0.22em; text-transform: uppercase; }
+.group { margin-bottom: 18px; }
+.group h3 { margin: 0 0 8px; font: 500 11px/1 var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-dim); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chips.grid6 { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.chip { min-height: 40px; padding: 0 14px; border-radius: 20px; border: 1px solid var(--line-hi); background: transparent; color: var(--ink); font: 400 12px/1 var(--font-mono); cursor: pointer; touch-action: manipulation; }
+.chips.grid6 .chip { padding: 0; }
+.chip[aria-pressed="true"] { background: var(--signal); border-color: var(--signal); color: var(--on-signal); font-weight: 500; }
+
+.sliders { display: flex; flex-direction: column; gap: 6px; }
+.srow { display: grid; grid-template-columns: 1fr auto; gap: 0 12px; align-items: center; }
+.srow label { font-size: 12px; }
+.srow output { font-size: 12px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.srow input { grid-column: 1 / -1; width: 100%; margin: 0; height: 34px; background: transparent; -webkit-appearance: none; appearance: none; touch-action: pan-y; }
+.srow input::-webkit-slider-runnable-track { height: 3px; background: var(--line-hi); border-radius: 2px; }
+.srow input::-moz-range-track { height: 3px; background: var(--line-hi); border-radius: 2px; }
+.srow input::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; margin-top: -10px; border-radius: 50%; background: var(--signal); border: 0; }
+.srow input::-moz-range-thumb { width: 24px; height: 24px; border-radius: 50%; background: var(--signal); border: 0; }
+
+.intro { position: absolute; inset: 0; z-index: 9; background: var(--scrim); overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.intro-in { min-height: 100%; max-width: 460px; margin: 0 auto; padding: 28px 16px 24px; display: flex; flex-direction: column; gap: 22px; justify-content: center; }
+.intro h1 { margin: 0; font: 700 30px/1.05 var(--font-display); letter-spacing: 0.14em; }
+.lede { margin: 8px 0 0; color: var(--ink-dim); font-size: 13px; line-height: 1.5; }
+.gestures { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.gestures li { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 14px; align-items: start; }
+.gestures svg { width: 36px; height: 36px; color: var(--wave); }
+.gestures b { display: block; margin-bottom: 3px; font: 500 12px/1.2 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; }
+.gestures p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--ink-dim); }
+.go { min-height: 54px; background: var(--signal); color: var(--on-signal); border-color: var(--signal); font-size: 13px; }
+.note { margin: 0; font-size: 11px; line-height: 1.5; color: var(--ink-dim); }
+.err { margin: 0; font-size: 12px; color: var(--signal); }
+
+@media (prefers-reduced-motion: reduce) { .sheet { transition: none; } .lyr.rec .lm, .btn.rec .dot { animation: none; } }
+</style>
+
+<style>
+/* standalone: keep the instrument clear of the iPhone notch and home bar */
+body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+</style>
 </head>
 <body>
-    <div id="info">
-        <h2>Earth's Helicoid Trajectory</h2>
-        <p>Use the mouse to rotate the view.</p>
+<div id="app">
+  <canvas id="field" aria-label="Play field. Touch and drag to make sound."></canvas>
+
+  <header class="hud">
+    <button class="btn round sm" id="helpBtn" type="button" aria-label="Show gestures">?</button>
+    <div class="layers" id="layers" role="group" aria-label="Layers"></div>
+    <button class="btn round" id="addBtn" type="button" aria-label="Add layer">+</button>
+  </header>
+
+  <dl class="readout">
+    <dt>Layer</dt><dd id="rLayer">--</dd>
+    <dt>Note</dt><dd id="rNote">--</dd>
+    <dt>Freq</dt><dd id="rFreq">--</dd>
+    <dt>Filter</dt><dd id="rCut">--</dd>
+    <dt>Wave</dt><dd id="rWave">--</dd>
+    <dt>Width</dt><dd id="rWidth">--</dd>
+  </dl>
+
+  <div class="cap" id="cap" aria-live="polite">
+    <div class="cap-t" id="capT"></div>
+    <div class="cap-s" id="capS"></div>
+    <div class="cap-h">Touch the screen to take over</div>
+  </div>
+
+  <nav class="dock" aria-label="Controls">
+    <button class="btn" id="patchBtn" type="button" aria-expanded="false" aria-controls="sheet">Patch</button>
+    <button class="btn" id="snapBtn" type="button" aria-pressed="true"><i class="dot"></i>Snap</button>
+    <button class="btn rec" id="recBtn" type="button" data-state="idle"><i class="dot"></i><span id="recLbl">Rec</span></button>
+    <button class="btn" id="relBtn" type="button" disabled>Release</button>
+    <button class="btn" id="autoBtn" type="button" aria-pressed="false"><i class="dot"></i><span id="autoLbl">Auto</span></button>
+  </nav>
+
+  <section class="sheet" id="sheet" aria-label="Patch controls" aria-hidden="true">
+    <div class="sheet-head">
+      <h2>Patch</h2>
+      <button class="btn" id="closeSheet" type="button">Done</button>
     </div>
-    <script>
-        // Ensure the code runs after the page and libraries have fully loaded
-        window.onload = function () {
-            // Scene, Camera, and Renderer
-            const scene = new THREE.Scene();
-            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            const renderer = new THREE.WebGLRenderer();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            document.body.appendChild(renderer.domElement);
+    <div class="group" id="layerGroup">
+      <h3 class="lhead" id="layerHead"><i></i><span id="layerName">Layer 1</span></h3>
+      <div class="sliders" id="levelRow"></div>
+      <div class="chips" style="margin-top:8px">
+        <button class="chip" id="clearLoop" type="button" disabled>Clear loop</button>
+        <button class="chip" id="delLayer" type="button" disabled>Delete layer</button>
+      </div>
+    </div>
+    <div class="group"><h3>Presets</h3><div class="chips" id="presetChips"></div></div>
+    <div class="group"><h3>Scale</h3><div class="chips" id="scaleChips"></div></div>
+    <div class="group"><h3>Root</h3><div class="chips grid6" id="rootChips"></div></div>
+    <div class="group"><h3>Register</h3><div class="chips" id="regChips"></div></div>
+    <div class="group"><h3>Shape and effects</h3><div class="sliders" id="sliders"></div></div>
+  </section>
 
-            // Add a Sun (Sphere)
-            const sunGeometry = new THREE.SphereGeometry(2, 32, 32);
-            const sunMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
-            const sun = new THREE.Mesh(sunGeometry, sunMaterial);
-            scene.add(sun);
+  <div class="intro" id="intro">
+    <div class="intro-in">
+      <div>
+        <h1>DACTYL</h1>
+        <p class="lede">A synthesizer you play with your fingers. Every gesture shapes the sound.</p>
+      </div>
+      <ul class="gestures">
+        <li>
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 16h24M9 11l-5 5 5 5M23 11l5 5-5 5"/><circle cx="16" cy="16" r="3.2" style="fill:var(--signal);stroke:none"/></svg>
+          <div><b>Drag</b><p>Left and right sets the pitch. Up and down opens the filter.</p></div>
+        </li>
+        <li>
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21l6-10 7 10 7-10 6 10"/></svg>
+          <div><b>Scrub</b><p>Move fast to push the filter into resonance.</p></div>
+        </li>
+        <li>
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="16" cy="16" r="11" stroke-dasharray="3 4"/><circle cx="16" cy="16" r="3.6" style="fill:var(--signal);stroke:none"/></svg>
+          <div><b>Hold</b><p>Keep still for half a second to latch a drone. Tap the ring to let it go.</p></div>
+        </li>
+        <li>
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="25" r="3.2" style="fill:var(--signal);stroke:none"/><path d="M10 22L24 8"/><circle cx="19" cy="13" r="2.4"/><circle cx="26" cy="6" r="1.8"/></svg>
+          <div><b>Flick</b><p>Lift your finger while moving to throw the sound into the echo.</p></div>
+        </li>
+        <li>
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="24" r="3" style="fill:var(--signal);stroke:none"/><circle cx="23" cy="9" r="3" style="fill:var(--signal);stroke:none"/><path d="M11 22L21 11"/><path d="M5 14a12 12 0 0 1 8-9M27 18a12 12 0 0 1-8 9"/></svg>
+          <div><b>Two fingers</b><p>Spread to widen the unison. Twist to morph the waveform from sine to square.</p></div>
+        </li>
+        <li>
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="9" cy="16" r="5" style="fill:var(--signal);stroke:none"/><circle cx="21" cy="16" r="5" style="stroke:var(--wave)"/><path d="M27 8v6M24 11h6"/></svg>
+          <div><b>Layers</b><p>Each circle at the top is a layer with its own sound. Tap one to play it, tap it again to turn it off. Hold to switch it without changing layers. Plus adds a layer.</p></div>
+        </li>
+        <li>
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M7 12a10 10 0 0 1 17-3M25 20a10 10 0 0 1-17 3"/><path d="M24 4v5h-5M8 28v-5h5"/><circle cx="16" cy="16" r="2.6" style="fill:var(--rec);stroke:none"/></svg>
+          <div><b>Loop</b><p>Press Rec, play, press Stop. Your gestures repeat on that layer. Later layers record in time with the first loop.</p></div>
+        </li>
+        <li>
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="16" cy="16" r="5"/><circle cx="16" cy="16" r="11"/></svg>
+          <div><b>Double tap</b><p>Releases every latched drone at once.</p></div>
+        </li>
+      </ul>
+      <button class="btn go" id="startBtn" type="button">Start playing</button>
+      <button class="btn" id="demoBtn" type="button">Watch autopilot</button>
+      <p class="note">No sound? Switch off the silent mode switch on the side of your iPhone and raise the volume.</p>
+      <p class="err" id="audioErr" hidden>This browser cannot play Web Audio.</p>
+    </div>
+  </div>
+</div>
 
-            // Add Earth (Sphere)
-            const earthGeometry = new THREE.SphereGeometry(0.5, 32, 32);
-            const earthMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff });
-            const earth = new THREE.Mesh(earthGeometry, earthMaterial);
-            scene.add(earth);
+<script>
+(() => {
+'use strict';
 
-            // Helicoid Trajectory
-            const trajectoryPoints = [];
-            const R = 10; // Orbit radius
-            const r = 0.5; // Earth's radius
-            const latitude = 40 * (Math.PI / 180); // Sample latitude (e.g., New York)
+const $ = s => document.querySelector(s);
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
 
-            // Generate points for the helicoid
-            const numDays = 365;
-            for (let t = 0; t <= numDays; t++) {
-                const angleRevolution = (2 * Math.PI * t) / numDays; // Revolution around the Sun
-                const angleRotation = (2 * Math.PI * t); // Daily rotation
-                const x = R * Math.cos(angleRevolution);
-                const y = R * Math.sin(angleRevolution);
-                const z = r * Math.sin(latitude) * Math.sin(angleRotation);
-                trajectoryPoints.push(new THREE.Vector3(x, y, z));
-            }
+/* ---------- design tokens for the canvas ---------- */
+const css = getComputedStyle(document.documentElement);
+const tok = n => css.getPropertyValue(n).trim();
+const hex = h => { h = h.replace('#', ''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; };
+const rgba = (c, a) => 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')';
+const COL = { ground: tok('--ground'), line: hex(tok('--line')), lineHi: hex(tok('--line-hi')), dim: hex(tok('--ink-dim')), signal: hex(tok('--signal')), wave: hex(tok('--wave')), rec: hex(tok('--rec')) };
+const MONO = '11px "IBM Plex Mono", ui-monospace, Menlo, monospace';
 
-            // Create line for trajectory
-            const trajectoryGeometry = new THREE.BufferGeometry().setFromPoints(trajectoryPoints);
-            const trajectoryMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00 });
-            const trajectory = new THREE.Line(trajectoryGeometry, trajectoryMaterial);
-            scene.add(trajectory);
+/* ---------- musical model ---------- */
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const SCALES = {
+  'Minor pent': [0, 3, 5, 7, 10],
+  'Major pent': [0, 2, 4, 7, 9],
+  'Dorian': [0, 2, 3, 5, 7, 9, 10],
+  'Whole tone': [0, 2, 4, 6, 8, 10],
+  'Chromatic': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+};
+const SPAN = 36;                 // semitones across the field (3 octaves)
+const CUT_MIN = 70, CUT_MAX = 14000;
+const MAX_VOICES = 12;
+const MAX_LAYERS = 6;
+const LAYER_HEX = ['#ff7b54', '#8fd8ff', '#b5e36e', '#ffc857', '#c3a1ff', '#ff8fb3'];
 
-            // Add Orbit Controls
-            const controls = new THREE.OrbitControls(camera, renderer.domElement);
+/* A preset is a sound only. Scale, root, register and snap belong to the player and are shared by every layer.
+   tone / noise: level of the oscillators and of the noise source.
+   dec / nDec: decay time of each (0 = sustains while touched).
+   pEnv / pTime: pitch drop in semitones at each hit (negative rises, like a chirp) and how fast it settles.
+   loop / jit: a held or latched note retriggers every loop seconds, with random timing from jit.
+   vib / lfoHz: vibrato depth in cents and speed. ftype / fq: filter shape and resonance. */
+const DEFAULTS = { morph: 0, width: 0.3, att: 0.02, rel: 1.2, drive: 0, dTime: 0.34, dFb: 0.45, dMix: 0.3, rMix: 0.5,
+  tone: 1, noise: 0, nDec: 0, dec: 0, pEnv: 0, pTime: 0.06, loop: 0, jit: 0, vib: 0, lfoHz: 5, ftype: 'lowpass', fq: 1.4 };
+const PRESETS = [
+  { name: 'Glass',     morph: 0.15, width: 0.30, att: 0.02,  rel: 1.4,  drive: 0.00, dTime: 0.34, dFb: 0.45, dMix: 0.32, rMix: 0.50 },
+  { name: 'Cathedral', morph: 2.00, width: 0.65, att: 0.28,  rel: 2.2,  drive: 0.12, dTime: 0.50, dFb: 0.40, dMix: 0.20, rMix: 0.80 },
+  { name: 'Pluck',     morph: 1.30, width: 0.15, att: 0.003, rel: 0.22, drive: 0.10, dTime: 0.19, dFb: 0.55, dMix: 0.45, rMix: 0.25 },
+  { name: 'Siren',     morph: 3.00, width: 0.80, att: 0.03,  rel: 0.35, drive: 0.50, dTime: 0.26, dFb: 0.60, dMix: 0.25, rMix: 0.30 },
+  { name: 'Dust',      morph: 0.80, width: 1.00, att: 0.70,  rel: 3.2,  drive: 0.05, dTime: 0.62, dFb: 0.70, dMix: 0.50, rMix: 0.90 },
+  // A tom with a stick transient. Touch for one hit, hold to roll, latch for a loop.
+  { name: 'Percussion', morph: 0.6, width: 0.08, att: 0.001, rel: 0.5, drive: 0.25, dTime: 0.19, dFb: 0.32, dMix: 0.18, rMix: 0.22,
+    noise: 0.3, nDec: 0.035, dec: 0.42, pEnv: 15, pTime: 0.09, loop: 0.3, fq: 2.5 },
+  // Air from filtered noise with sparse bird-like chirps. Slide up and down to open the wind.
+  { name: 'Nature', morph: 0, width: 0.55, att: 0.8, rel: 2.6, drive: 0, dTime: 0.55, dFb: 0.5, dMix: 0.25, rMix: 0.85,
+    tone: 0.6, noise: 0.9, dec: 0.14, pEnv: -8, pTime: 0.07, loop: 0.85, jit: 0.85, vib: 18, lfoHz: 6.5, fq: 3.5 },
+  // Tone and static in bursts of a few milliseconds. Height picks the band, so low is a thud and high is a tick.
+  { name: 'Click/Noise', morph: 3, width: 0.2, att: 0.001, rel: 0.12, drive: 0.35, dTime: 0.12, dFb: 0.5, dMix: 0.35, rMix: 0.15,
+    tone: 0.9, noise: 0.9, nDec: 0.012, dec: 0.018, loop: 0.13, jit: 0.35, ftype: 'bandpass', fq: 3 }
+].map(p => Object.assign({}, DEFAULTS, p));
 
-            // Set Camera Position
-            camera.position.z = 20;
+const P = { root: 9, reg: 0, scale: 'Minor pent', snap: true };     // shared by all layers
+const SOUND_KEYS = Object.keys(DEFAULTS);
+let tones = [];
+function rebuildTones() {
+  const sc = SCALES[P.scale];
+  tones = [];
+  for (let s = 0; s <= SPAN; s++) if (sc.indexOf(s % 12) >= 0) tones.push(s);
+}
+rebuildTones();
 
-            // Animation loop
-            function animate() {
-                requestAnimationFrame(animate);
-                renderer.render(scene, camera);
-            }
-            animate();
+const baseMidi = () => 48 + P.root + 12 * P.reg;
+function semisFromX(xn) {
+  let s = clamp(xn, 0, 1) * SPAN;
+  if (P.snap) {
+    let best = tones[0], bd = 1e9;
+    for (let i = 0; i < tones.length; i++) { const d = Math.abs(tones[i] - s); if (d < bd) { bd = d; best = tones[i]; } }
+    s = best;
+  }
+  return s;
+}
+const freqFromSemis = s => 440 * Math.pow(2, (baseMidi() + s - 69) / 12);
+const cutHz = n => CUT_MIN * Math.pow(CUT_MAX / CUT_MIN, n);
+function noteName(s) { const r = Math.round(baseMidi() + s); return NOTE_NAMES[((r % 12) + 12) % 12] + (Math.floor(r / 12) - 1); }
+function noteLabel(s) {
+  const m = baseMidi() + s, r = Math.round(m), cents = Math.round((m - r) * 100);
+  return noteName(s) + (cents ? ' ' + (cents > 0 ? '+' : '') + cents + 'c' : '');
+}
+const fmtHz = hz => (hz >= 1000 ? (hz / 1000).toFixed(1) + ' kHz' : Math.round(hz) + ' Hz');
+const WAVES = ['SINE', 'TRI', 'SAW', 'SQUARE'];
+function waveName(Q) {
+  const i = Math.min(2, Math.floor(Q.morph)), f = Q.morph - i;
+  if (f < 0.08) return WAVES[i];
+  if (f > 0.92) return WAVES[i + 1];
+  return WAVES[i] + '>' + WAVES[i + 1] + ' ' + Math.round(f * 100);
+}
 
-            // Adjust scene on window resize
-            window.addEventListener('resize', () => {
-                camera.aspect = window.innerWidth / window.innerHeight;
-                camera.updateProjectionMatrix();
-                renderer.setSize(window.innerWidth, window.innerHeight);
-            });
-        };
-    </script>
+/* ---------- layers ---------- */
+/* A layer is a sound (patch), a level, an on/off state, its own effects chain and an optional recorded loop. */
+const layers = [];
+let activeIdx = 0, layerSeq = 0;
+let demoLayer = null;                       // the autopilot plays on a layer of its own that is never listed
+const auto = { on: false, token: 0 };
+const curL = () => (auto.on && demoLayer ? demoLayer : layers[activeIdx]);
+function newLayer(src, preset, listed) {
+  const used = listed ? layers.map(l => l.ci) : [];
+  let ci = 0; while (used.indexOf(ci) >= 0) ci++;
+  const L = { id: ++layerSeq, ci, hexc: LAYER_HEX[ci], rgb: hex(LAYER_HEX[ci]), on: true, level: 0.85, patch: {}, preset,
+    loop: null, i: 0, cyc: 0, needSync: true, nodes: null, hand: null, hit: 0 };
+  SOUND_KEYS.forEach(k => { L.patch[k] = src[k]; });
+  L.hand = newHand(L, false);
+  if (ctx) buildLayerNodes(L);
+  return L;
+}
+
+/* ---------- audio engine ---------- */
+let ctx = null, conv, comp, outG, analyser, scopeData;
+let keepAlive = null, noiseBuf = null;
+const TYPES = ['sine', 'triangle', 'sawtooth', 'square'];
+const TYPE_TRIM = [1, 0.9, 0.42, 0.34];
+const VOICE_LEVEL = 0.2;
+const DETUNE_CENTS = 30;
+const active = [];
+let voiceId = 0;
+
+function makeCurve(drive) {
+  const n = 2048, c = new Float32Array(n), k = 1 + drive * 14, norm = Math.tanh(k);
+  for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.tanh(x * k) / norm; }
+  return c;
+}
+function makeImpulse(sec, decay) {
+  const len = Math.floor(ctx.sampleRate * sec), b = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = b.getChannelData(ch);
+    let y = 0;
+    for (let i = 0; i < len; i++) {
+      const t = i / len, env = Math.pow(1 - t, decay);
+      y += ((Math.random() * 2 - 1) * env - y) * lerp(0.85, 0.1, t);   // darker as it decays
+      d[i] = y * 1.6;
+    }
+  }
+  return b;
+}
+function silentWav() {
+  const n = 4410, buf = new Uint8Array(44 + n * 2), dv = new DataView(buf.buffer);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, 44100, true); dv.setUint32(28, 88200, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+  w(36, 'data'); dv.setUint32(40, n * 2, true);
+  let s = '';
+  for (let i = 0; i < buf.length; i++) s += String.fromCharCode(buf[i]);
+  return 'data:audio/wav;base64,' + btoa(s);
+}
+
+/* Per layer: voices -> bus -> drive -> level -> dry / echo / reverb send. The convolver and the compressor are shared. */
+function buildLayerNodes(L) {
+  const Q = L.patch, n = {};
+  n.bus = ctx.createGain();
+  n.shaper = ctx.createWaveShaper(); n.shaper.oversample = '2x'; n.shaper.curve = makeCurve(Q.drive); n.drive = Q.drive;
+  n.lvl = ctx.createGain(); n.lvl.gain.value = L.on ? L.level : 0;
+  n.dry = ctx.createGain();
+  n.dly = ctx.createDelay(2); n.dly.delayTime.value = Q.dTime;
+  n.fbG = ctx.createGain(); n.fbG.gain.value = Q.dFb;
+  n.fbLP = ctx.createBiquadFilter(); n.fbLP.type = 'lowpass'; n.fbLP.frequency.value = 3200;
+  n.dlyWet = ctx.createGain(); n.dlyWet.gain.value = Q.dMix;
+  n.rev = ctx.createGain(); n.rev.gain.value = Q.rMix;
+  n.bus.connect(n.shaper); n.shaper.connect(n.lvl);
+  n.lvl.connect(n.dry); n.dry.connect(comp);
+  n.lvl.connect(n.dly); n.dly.connect(n.fbLP); n.fbLP.connect(n.fbG); n.fbG.connect(n.dly);
+  n.dly.connect(n.dlyWet); n.dlyWet.connect(comp);
+  n.lvl.connect(n.rev); n.dlyWet.connect(n.rev); n.rev.connect(conv);
+  L.nodes = n;
+}
+function destroyLayerNodes(L) {
+  const n = L.nodes; if (!n) return;
+  L.nodes = null;
+  n.lvl.gain.setTargetAtTime(0, ctx.currentTime, 0.05);
+  setTimeout(() => { Object.keys(n).forEach(k => { try { n[k].disconnect(); } catch (_) {} }); }, 6000);
+}
+
+function initAudio() {
+  if (ctx) return true;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return false;
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+  try {
+    keepAlive = document.createElement('audio');
+    keepAlive.src = silentWav();
+    keepAlive.loop = true;
+    keepAlive.setAttribute('playsinline', '');
+    const pr = keepAlive.play();
+    if (pr && pr.catch) pr.catch(() => {});
+  } catch (_) {}
+
+  ctx = new AC({ latencyHint: 'interactive' });
+  noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+  { const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * 0.6; }
+  conv = ctx.createConvolver(); conv.buffer = makeImpulse(2.8, 2.4);
+  comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -16; comp.knee.value = 18; comp.ratio.value = 5; comp.attack.value = 0.004; comp.release.value = 0.2;
+  outG = ctx.createGain(); outG.gain.value = 0.9;
+  analyser = ctx.createAnalyser(); analyser.fftSize = 1024; analyser.smoothingTimeConstant = 0.5;
+  scopeData = new Uint8Array(analyser.fftSize);
+  conv.connect(comp);
+  comp.connect(outG); outG.connect(ctx.destination); outG.connect(analyser);
+  layers.forEach(buildLayerNodes);
+  ctx.resume().catch(() => {});
+  return true;
+}
+function ensureRunning() { if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); }
+
+function applyFx(L) {
+  if (!ctx || !L || !L.nodes) return;
+  const n = L.nodes, Q = L.patch, t = ctx.currentTime;
+  n.dly.delayTime.setTargetAtTime(Q.dTime, t, 0.08);
+  n.fbG.gain.setTargetAtTime(Q.dFb, t, 0.05);
+  n.dlyWet.gain.setTargetAtTime(Q.dMix, t, 0.05);
+  n.rev.gain.setTargetAtTime(Q.rMix, t, 0.05);
+  if (Q.drive !== n.drive) { n.shaper.curve = makeCurve(Q.drive); n.drive = Q.drive; }
+}
+function setLevel(L) {
+  if (ctx && L.nodes) L.nodes.lvl.gain.setTargetAtTime(L.on ? L.level : 0, ctx.currentTime, 0.04);
+}
+
+const morphWeights = m => TYPE_TRIM.map((trim, k) => Math.max(0, 1 - Math.abs(m - k)) * trim);
+function makePan(val) {
+  if (ctx.createStereoPanner) { const p = ctx.createStereoPanner(); p.pan.value = val; return p; }
+  return ctx.createGain();
+}
+
+function createVoice(L, freq, cutN, at) {
+  while (active.length >= MAX_VOICES) releaseVoice(active.find(x => !x.latched) || active[0], 0.08);
+  const Q = L.patch, t = Math.max(ctx.currentTime, at || 0);
+  const v = { id: ++voiceId, layer: L, Q, latched: false, released: false, oscs: [], gains: [], freq, cutN, semis: 0, px: 0, py: 0, latchT: 0, nextT: 0, flash: 0 };
+  v.vca = ctx.createGain(); v.vca.gain.value = 0;
+  v.filter = ctx.createBiquadFilter(); v.filter.type = Q.ftype; v.filter.frequency.value = cutHz(cutN); v.filter.Q.value = Q.fq;
+  v.panL = makePan(-Q.width); v.panR = makePan(Q.width);
+  v.toneG = ctx.createGain(); v.toneG.gain.value = 0;
+  v.noiseG = ctx.createGain(); v.noiseG.gain.value = 0;
+  v.cs = ctx.createConstantSource ? ctx.createConstantSource() : null;
+  if (v.cs) v.cs.offset.value = freq;
+  v.pe = ctx.createConstantSource ? ctx.createConstantSource() : null;   // adds a decaying number of Hz on top of the pitch
+  if (v.pe) v.pe.offset.value = 0;
+  v.lfo = ctx.createOscillator(); v.lfo.frequency.value = Q.lfoHz;
+  v.vibG = ctx.createGain(); v.vibG.gain.value = Q.vib;
+  v.lfo.connect(v.vibG);
+  v.noise = ctx.createBufferSource(); v.noise.buffer = noiseBuf; v.noise.loop = true;
+  v.noise.connect(v.noiseG); v.noiseG.connect(v.filter);
+  const w = morphWeights(Q.morph), det = Q.width * DETUNE_CENTS;
+  for (let side = 0; side < 2; side++) {
+    for (let k = 0; k < 4; k++) {
+      const o = ctx.createOscillator(); o.type = TYPES[k];
+      o.detune.value = (side ? 1 : -1) * det;
+      if (v.cs) { o.frequency.value = 0; v.cs.connect(o.frequency); if (v.pe) v.pe.connect(o.frequency); } else o.frequency.value = freq;
+      v.vibG.connect(o.detune);
+      const g = ctx.createGain(); g.gain.value = w[k] * 0.5;
+      o.connect(g); g.connect(side ? v.panR : v.panL);
+      o.start(t);
+      v.oscs.push(o); v.gains.push(g);
+    }
+  }
+  if (v.cs) v.cs.start(t);
+  if (v.pe) v.pe.start(t);
+  v.lfo.start(t);
+  v.noise.start(t, Math.random() * 1.5);
+  v.panL.connect(v.toneG); v.panR.connect(v.toneG);
+  v.toneG.connect(v.filter);
+  v.filter.connect(v.vca); v.vca.connect(L.nodes.bus);
+  v.vca.gain.setTargetAtTime(VOICE_LEVEL, t, Math.max(0.002, Q.att / 3));
+  fire(v, t);
+  v.nextT = t + loopGap(Q);
+  active.push(v);
+  return v;
+}
+
+/* One hit: the tone and the noise each rise, then decay if the preset asks for it, and the pitch drops from above. */
+const NOISE_LEVEL = 1.5;
+function fire(v, t) {
+  const Q = v.Q, tc = Math.max(0.0012, Math.min(Q.att, 0.05) / 3);
+  const tg = v.toneG.gain;
+  tg.cancelScheduledValues(t);
+  tg.setTargetAtTime(Q.tone, t, tc);
+  if (Q.dec > 0) tg.setTargetAtTime(0, t + tc * 4, Q.dec / 3);
+  const ng = v.noiseG.gain;
+  ng.cancelScheduledValues(t);
+  ng.setTargetAtTime(Q.noise * NOISE_LEVEL, t, tc);
+  if (Q.nDec > 0) ng.setTargetAtTime(0, t + tc * 4, Q.nDec / 3);
+  if (v.pe) {
+    v.pe.offset.cancelScheduledValues(t);
+    if (Q.pEnv) {
+      v.pe.offset.setValueAtTime(v.freq * (Math.pow(2, Q.pEnv / 12) - 1), t);
+      v.pe.offset.setTargetAtTime(0, t, Q.pTime / 3);
+    } else v.pe.offset.setValueAtTime(0, t);
+  }
+  v.flash = performance.now() + Math.max(0, (t - ctx.currentTime) * 1000);
+}
+const loopGap = Q => Math.max(0.03, Q.loop * (1 + Q.jit * (Math.random() * 2 - 1)));
+/* Held and latched notes retrigger on their own when the preset has a roll. Scheduled slightly ahead so the rhythm stays even. */
+function runLoops() {
+  const now = ctx.currentTime;
+  for (const v of active) {
+    if (v.released || !(v.Q.loop > 0)) continue;
+    if (v.nextT < now - 0.1) v.nextT = now;
+    while (v.nextT < now + 0.06) { fire(v, v.nextT); v.nextT += loopGap(v.Q); }
+  }
+}
+function setVoice(v, freq, cutN, q) {
+  const t = ctx.currentTime, gl = P.snap ? 0.025 : 0.012;
+  if (v.cs) v.cs.offset.setTargetAtTime(freq, t, gl);
+  else for (let i = 0; i < v.oscs.length; i++) v.oscs[i].frequency.setTargetAtTime(freq, t, gl);
+  v.filter.frequency.setTargetAtTime(cutHz(cutN), t, 0.03);
+  v.filter.Q.setTargetAtTime(q, t, 0.06);
+  v.freq = freq; v.cutN = cutN;
+}
+function applyTimbre(v) {
+  const Q = v.Q, t = ctx.currentTime, w = morphWeights(Q.morph), det = Q.width * DETUNE_CENTS;
+  for (let side = 0; side < 2; side++) {
+    for (let k = 0; k < 4; k++) {
+      const i = side * 4 + k;
+      v.gains[i].gain.setTargetAtTime(w[k] * 0.5, t, 0.03);
+      v.oscs[i].detune.setTargetAtTime((side ? 1 : -1) * det, t, 0.05);
+    }
+  }
+  if (v.panL.pan) { v.panL.pan.setTargetAtTime(-Q.width, t, 0.05); v.panR.pan.setTargetAtTime(Q.width, t, 0.05); }
+  v.filter.type = Q.ftype;
+  v.vibG.gain.setTargetAtTime(Q.vib, t, 0.05);
+  v.lfo.frequency.setTargetAtTime(Q.lfoHz, t, 0.05);
+  if (Q.dec <= 0) v.toneG.gain.setTargetAtTime(Q.tone, t, 0.03);          // sustained tone follows the level
+  if (Q.nDec <= 0) v.noiseG.gain.setTargetAtTime(Q.noise * NOISE_LEVEL, t, 0.03);
+}
+function releaseVoice(v, rel) {
+  if (v.released) return;
+  v.released = true;
+  const i = active.indexOf(v); if (i >= 0) active.splice(i, 1);
+  const r = rel == null ? v.Q.rel : rel, t = ctx.currentTime, stopAt = t + r * 1.8 + 0.15;
+  v.vca.gain.setTargetAtTime(0, t, r / 4);
+  v.oscs.forEach(o => { try { o.stop(stopAt); } catch (_) {} });
+  [v.cs, v.pe, v.lfo, v.noise].forEach(n => { if (n) { try { n.stop(stopAt); } catch (_) {} } });
+  setTimeout(() => { try { v.vca.disconnect(); } catch (_) {} }, (r * 1.8 + 0.4) * 1000);
+}
+function releaseAllLatched(L) {
+  active.slice().forEach(v => { if (v.latched && (!L || v.layer === L)) releaseVoice(v, Math.max(v.Q.rel, 0.25)); });
+  updateRel();
+}
+
+/* ---------- canvas + state ---------- */
+const field = $('#field'), g = field.getContext('2d');
+let W = 0, H = 0, rect = null;
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  rect = field.getBoundingClientRect();
+  W = rect.width; H = rect.height;
+  field.width = Math.max(1, Math.round(W * dpr)); field.height = Math.max(1, Math.round(H * dpr));
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+if (window.ResizeObserver) new ResizeObserver(resize).observe(field);
+window.addEventListener('resize', resize);
+resize();
+
+let started = false, everPlayed = false, timbreDirty = false, refireL = null;
+const ghosts = [], echoes = [];
+let lastTap = { t: 0, x: 0, y: 0 }, lastInfo = null;
+
+/* A hand is a source of touches: the player's fingers, a layer replaying its loop, or the autopilot.
+   Each hand has its own pointers, so a looping layer never interferes with live playing. */
+function newHand(L, live) {
+  return { layer: L, live, ptrs: new Map(), sculpt: null, latch: live, sculptOK: live, taps: live, info: live };
+}
+const liveHand = newHand(null, true);
+const autoHand = newHand(null, true);
+const allHands = () => [liveHand, autoHand].concat(layers.map(l => l.hand));
+
+const relBtn = $('#relBtn');
+function updateRel() {
+  const n = active.filter(v => v.latched && !v.released).length;
+  relBtn.disabled = !n;
+  relBtn.textContent = n ? 'Release ' + n : 'Release';
+}
+function silenceHand(h) { Array.from(h.ptrs.keys()).forEach(id => hUp(h, id)); }
+
+/* ---------- layer state ---------- */
+function setLayerOn(L, on) {
+  if (L.on === on) return;
+  L.on = on; L.needSync = true;
+  setLevel(L);
+  if (!on) { silenceHand(L.hand); releaseAllLatched(L); }
+  refreshLayers();
+}
+function hitLayer(L) { L.hit = performance.now(); pulseLayerUI(L); }
+
+/* ---------- gestures ---------- */
+field.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+field.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+field.addEventListener('contextmenu', e => e.preventDefault());
+['gesturestart', 'gesturechange', 'gestureend'].forEach(n => document.addEventListener(n, e => e.preventDefault()));
+
+field.addEventListener('pointerdown', e => {
+  if (!started || !ctx) return;
+  e.preventDefault();
+  if (auto.on) stopAuto();
+  ensureRunning();
+  rect = field.getBoundingClientRect();
+  if (liveHand.ptrs.size === 0) liveHand.layer = curL();
+  if (hDown(liveHand, e.pointerId, e.clientX - rect.left, e.clientY - rect.top)) {
+    try { field.setPointerCapture(e.pointerId); } catch (_) {}
+  }
+});
+field.addEventListener('pointermove', e => {
+  if (!liveHand.ptrs.has(e.pointerId)) return;
+  e.preventDefault();
+  hMove(liveHand, e.pointerId, e.clientX - rect.left, e.clientY - rect.top);
+});
+field.addEventListener('pointerup', e => hUp(liveHand, e.pointerId));
+field.addEventListener('pointercancel', e => hUp(liveHand, e.pointerId));
+
+function hDown(h, id, x, y, at, tms) {
+  const L = h.layer;
+  if (!L) return false;
+  if (h.live) {
+    for (const v of active) {
+      if (v.latched && !v.released && Math.hypot(v.px - x, v.py - y) < 48) {
+        releaseVoice(v, Math.max(v.Q.rel, 0.25));
+        echoes.push({ x: v.px, y: v.py, ux: 0, uy: 0, k: 0, t0: performance.now(), a: 0.8, rgb: v.layer.rgb });
+        updateRel();
+        return false;
+      }
+    }
+  }
+  if (h.ptrs.size >= 2) return false;
+  if (!L.on) setLayerOn(L, true);
+  const now = tms || performance.now();
+  let slot = 0;
+  for (const q of h.ptrs.values()) if (q.slot === slot) slot++;
+  const p = { id, slot, x, y, cx: x, cy: y, sx: x, sy: y, t0: now, maxMove: 0, speed: 0, hist: [{ x, y, t: now }], trail: [{ x, y, t: now, s: 0 }], voice: null, lp: 0 };
+  if (h.ptrs.size === 0) {
+    if (h === liveHand) everPlayed = true;
+    const semis = semisFromX(x / W);
+    p.voice = createVoice(L, freqFromSemis(semis), 1 - clamp(y / H, 0, 1), at);
+    p.voice.semis = semis; p.voice.px = x; p.voice.py = y;
+    if (h.latch) {
+      p.lp = setTimeout(() => {
+        if (h.ptrs.get(id) === p && h.ptrs.size === 1 && p.maxMove < 14 && p.voice && !p.voice.released) {
+          p.voice.latched = true; p.voice.latchT = performance.now(); updateRel();
+        }
+      }, 520);
+    }
+  }
+  h.ptrs.set(id, p);
+  if (h.ptrs.size === 2) {
+    const a = Array.from(h.ptrs.values());
+    clearTimeout(a[0].lp);
+    if (h.sculptOK) {
+      const dx = a[1].x - a[0].x, dy = a[1].y - a[0].y;
+      h.sculpt = { d0: Math.hypot(dx, dy) || 1, aPrev: Math.atan2(dy, dx), acc: 0, w0: L.patch.width, m0: L.patch.morph };
+    }
+  }
+  if (h === liveHand) recEvent('d', p);
+  hitLayer(L);
+  return true;
+}
+
+function hMove(h, id, x, y, tms) {
+  const p = h.ptrs.get(id);
+  if (!p) return;
+  const now = tms || performance.now();
+  const dt = Math.max(1, now - p.hist[p.hist.length - 1].t);
+  p.speed = lerp(p.speed, Math.hypot(x - p.x, y - p.y) / dt, 0.4);
+  p.x = x; p.y = y;
+  p.maxMove = Math.max(p.maxMove, Math.hypot(x - p.sx, y - p.sy));
+  p.hist.push({ x, y, t: now });
+  while (p.hist.length > 2 && now - p.hist[0].t > 120) p.hist.shift();
+  p.trail.push({ x, y, t: now, s: p.speed });
+  if (p.trail.length > 70) p.trail.shift();
+  if (h.sculpt && h.ptrs.size === 2) updateSculpt(h);
+  if (h === liveHand) recEvent('m', p);
+}
+
+function updateSculpt(h) {
+  const Q = h.layer.patch, s = h.sculpt, a = Array.from(h.ptrs.values());
+  const dx = a[1].x - a[0].x, dy = a[1].y - a[0].y;
+  const d = Math.hypot(dx, dy), ang = Math.atan2(dy, dx);
+  let da = ang - s.aPrev;
+  if (da > Math.PI) da -= 2 * Math.PI;
+  if (da < -Math.PI) da += 2 * Math.PI;
+  s.acc += da; s.aPrev = ang;
+  Q.width = clamp(s.w0 + (d - s.d0) / (Math.min(W, H) * 0.55), 0, 1);
+  Q.morph = clamp(s.m0 + (s.acc / Math.PI) * 3, 0, 3);
+  timbreDirty = true;
+  clearPreset(h.layer);
+}
+
+function throwEcho(L, x, y, dx, dy, inten) {
+  const Q = L.patch, n0 = L.nodes;
+  const len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len, n = 3 + Math.round(inten * 5), now = performance.now();
+  for (let k = 0; k < n; k++) {
+    echoes.push({ x, y, ux, uy, k, t0: now + k * Q.dTime * 1000, a: Math.min(1, 0.4 + inten * 0.6) * Math.pow(clamp(Q.dFb + 0.25, 0, 0.92), k), rgb: L.rgb });
+  }
+  if (!n0) return;
+  const t = ctx.currentTime, hold = Q.dTime * (3 + inten * 5);
+  n0.dlyWet.gain.cancelScheduledValues(t); n0.fbG.gain.cancelScheduledValues(t);
+  n0.dlyWet.gain.setTargetAtTime(lerp(Q.dMix, 0.9, inten), t, 0.02);
+  n0.fbG.gain.setTargetAtTime(lerp(Q.dFb, 0.86, inten), t, 0.02);
+  n0.dlyWet.gain.setTargetAtTime(Q.dMix, t + hold, 0.9);
+  n0.fbG.gain.setTargetAtTime(Q.dFb, t + hold, 0.9);
+}
+
+function hUp(h, id, tms) {
+  const p = h.ptrs.get(id);
+  if (!p) return;
+  clearTimeout(p.lp);
+  if (h === liveHand) recEvent('u', p);
+  h.ptrs.delete(id);
+  const now = tms || performance.now();
+  if (h.taps && now - p.t0 < 260 && p.maxMove < 10) {
+    if (now - lastTap.t < 340 && Math.hypot(p.x - lastTap.x, p.y - lastTap.y) < 44) { releaseAllLatched(); lastTap.t = 0; }
+    else lastTap = { t: now, x: p.x, y: p.y };
+  }
+  ghosts.push({ pts: p.trail, rgb: h.layer.rgb });
+  if (h.ptrs.size < 2) h.sculpt = null;
+  const v = p.voice;
+  if (!v || v.latched) return;
+  if (h.ptrs.size > 0) { h.ptrs.values().next().value.voice = v; return; }
+  let speed = 0, dx = 0, dy = 0;
+  const hs = p.hist, first = hs[0], last = hs[hs.length - 1];
+  if (now - last.t < 80 && hs.length > 1) {
+    const dtt = Math.max(16, last.t - first.t);
+    dx = last.x - first.x; dy = last.y - first.y; speed = Math.hypot(dx, dy) / dtt;
+  }
+  const inten = clamp((speed - 0.7) / 2.0, 0, 1);
+  const hold = Math.max(0, 110 - (now - p.t0));
+  setTimeout(() => releaseVoice(v, inten > 0 ? Math.max(v.Q.rel, 0.2) : v.Q.rel), hold);
+  if (inten > 0.05) throwEcho(h.layer, p.x, p.y, dx, dy, inten);
+}
+
+field.addEventListener('wheel', e => {
+  e.preventDefault();
+  const Q = curL().patch;
+  if (e.shiftKey) Q.width = clamp(Q.width - e.deltaY / 600, 0, 1);
+  else Q.morph = clamp(Q.morph + e.deltaY / 300, 0, 3);
+  timbreDirty = true;
+  clearPreset(curL());
+}, { passive: false });
+
+function updateVoices() {
+  for (const h of allHands()) {
+    if (!h.layer || !h.ptrs.size) continue;
+    const Q = h.layer.patch, arr = Array.from(h.ptrs.values());
+    for (const p of arr) {
+      if (!p.voice || p.voice.released) continue;
+      let x = p.x, y = p.y;
+      if (arr.length === 2) { x = (arr[0].x + arr[1].x) / 2; y = (arr[0].y + arr[1].y) / 2; }
+      p.cx = x; p.cy = y;
+      p.speed *= 0.9;
+      const semis = semisFromX(x / W), cutN = 1 - clamp(y / H, 0, 1);
+      const q = Q.fq + clamp(p.speed / 1.8, 0, 1) * (Q.ftype === 'lowpass' ? 11 : 6);
+      const f = freqFromSemis(semis);
+      setVoice(p.voice, f, cutN, q);
+      p.voice.semis = semis; p.voice.px = x; p.voice.py = y;
+      if (h.info) lastInfo = { semis, cutN, freq: f };
+    }
+  }
+}
+
+/* ---------- loops: recording and playback ---------- */
+/* One shared cycle. The first loop you record sets its length. Every later layer records one cycle in time with it.
+   Loops store finger events (down, move, up) in field coordinates, and replay them through the layer's own sound. */
+const T = { len: 0, start: 0 };
+const rec = { state: 'idle', layer: null, events: [], open: new Set(), first: false, t0: 0 };
+const phaseAt = t => (T.len ? (((t - T.start) % T.len) + T.len) % T.len : 0);
+
+function recEvent(k, p) {
+  if (rec.state === 'armed' && k === 'd') beginRecording(p.slot);
+  if (rec.state !== 'recording' || rec.layer !== liveHand.layer) return;
+  const t = ctx.currentTime;
+  rec.events.push({ t: rec.first ? t - T.start : phaseAt(t), k, s: p.slot, x: p.x / W, y: p.y / H });
+  if (k === 'd') rec.open.add(p.slot); else if (k === 'u') rec.open.delete(p.slot);
+}
+function beginRecording(skipSlot) {
+  const now = ctx.currentTime, L = rec.layer;
+  rec.events = []; rec.open = new Set();
+  if (!T.len) { rec.first = true; T.start = now; }
+  else { rec.first = false; rec.t0 = now; silenceHand(L.hand); }
+  rec.state = 'recording';
+  if (!L.on) setLayerOn(L, true);
+  for (const p of liveHand.ptrs.values()) {                 // fingers that are already down become part of the take
+    if (p.slot === skipSlot) continue;
+    rec.events.push({ t: rec.first ? 0 : phaseAt(now), k: 'd', s: p.slot, x: p.x / W, y: p.y / H });
+    rec.open.add(p.slot);
+  }
+  refreshRec();
+}
+function toggleRec() {
+  if (!ctx || !started) return;
+  if (auto.on) stopAuto();
+  if (rec.state === 'idle') {
+    rec.layer = curL(); rec.events = [];
+    if (!T.len && !liveHand.ptrs.size) rec.state = 'armed';
+    else { liveHand.layer = liveHand.layer || rec.layer; beginRecording(-1); }
+    refreshRec();
+  } else if (rec.state === 'armed') cancelRec();
+  else finishRec();
+}
+function cancelRec() { rec.state = 'idle'; rec.events = []; rec.open = new Set(); if (rec.layer) rec.layer.needSync = true; refreshRec(); }
+function computeMarks(ev, len) {
+  const open = {}, out = [];
+  for (const e of ev) {
+    if (e.k === 'd') open[e.s] = e.t;
+    else if (e.k === 'u') { out.push([(open[e.s] == null ? 0 : open[e.s]) / len, e.t / len]); delete open[e.s]; }
+  }
+  Object.keys(open).forEach(s => out.push([open[s] / len, 1]));
+  return out;
+}
+function finishRec() {
+  if (rec.state !== 'recording') { cancelRec(); return; }
+  const now = ctx.currentTime, L = rec.layer, first = rec.first, ev = rec.events;
+  if (!ev.some(e => e.k === 'd') || (first && now - T.start < 0.4)) { cancelRec(); return; }
+  const len = first ? now - T.start : T.len, endT = first ? len - 0.001 : phaseAt(now);
+  rec.open.forEach(s => {                                    // a finger still down is lifted at the end of the take
+    let last = null;
+    for (let i = ev.length - 1; i >= 0; i--) if (ev[i].s === s) { last = ev[i]; break; }
+    ev.push({ t: endT, k: 'u', s, x: last ? last.x : 0.5, y: last ? last.y : 0.5 });
+  });
+  ev.forEach(e => { e.t = clamp(e.t, 0, len - 0.001); });
+  ev.sort((a, b) => a.t - b.t);
+  if (first) T.len = len;
+  L.loop = { ev, marks: computeMarks(ev, len) };
+  L.needSync = true;
+  rec.state = 'idle'; rec.events = []; rec.open = new Set();
+  refreshRec(); refreshLayers(); syncUI();
+}
+function clearLoop(L) {
+  if (rec.state !== 'idle' && rec.layer === L) cancelRec();
+  L.loop = null; silenceHand(L.hand);
+  if (!layers.some(l => l.loop)) T.len = 0;
+  refreshLayers(); syncUI();
+}
+function recTick() {
+  if (rec.state === 'recording' && !rec.first && ctx.currentTime - rec.t0 >= T.len) finishRec();
+}
+
+function syncCursor(L, now) {
+  const ev = L.loop.ev, len = T.len, ph = phaseAt(now);
+  L.cyc = Math.floor((now - T.start) / len);
+  let i = 0;
+  while (i < ev.length && ev[i].t < ph) i++;
+  if (i >= ev.length) { i = 0; L.cyc++; }
+  L.i = i;
+}
+function runPlayback() {
+  if (!T.len || auto.on) return;
+  const now = ctx.currentTime, to = now + 0.07;
+  for (const L of layers) {
+    if (!L.loop || !L.loop.ev.length) continue;
+    if (!L.on || (rec.state === 'recording' && rec.layer === L)) { L.needSync = true; continue; }
+    if (L.needSync) { syncCursor(L, now); L.needSync = false; }
+    const ev = L.loop.ev, h = L.hand;
+    for (let guard = 0; guard < 400; guard++) {
+      const e = ev[L.i], abs = T.start + L.cyc * T.len + e.t;
+      if (abs < now - 0.3) { syncCursor(L, now); break; }       // fell far behind, so skip ahead
+      if (abs > (e.k === 'd' ? to : now)) break;                // note starts are scheduled slightly early, everything else on time
+      const id = 's' + e.s, x = e.x * W, y = e.y * H, tms = performance.now() + (abs - now) * 1000;
+      if (e.k === 'd') hDown(h, id, x, y, Math.max(abs, now), tms);
+      else if (e.k === 'm') hMove(h, id, x, y, tms);
+      else hUp(h, id, tms);
+      L.i++;
+      if (L.i >= ev.length) { L.i = 0; L.cyc++; }
+    }
+  }
+}
+
+/* ---------- drawing ---------- */
+function waveSample(w, ph) {
+  const s0 = Math.sin(2 * Math.PI * ph);
+  return w[0] * s0 + w[1] * (2 / Math.PI) * Math.asin(s0) + w[2] * 2 * (ph - Math.floor(ph + 0.5)) + w[3] * (s0 >= 0 ? 1 : -1);
+}
+function drawGlyph(cx, cy, w, h, Q, rgb) {
+  const wt = [0, 1, 2, 3].map(k => Math.max(0, 1 - Math.abs(Q.morph - k)));
+  g.strokeStyle = rgba(rgb, 0.95); g.lineWidth = 2; g.lineJoin = 'round';
+  g.beginPath();
+  for (let i = 0; i <= 48; i++) {
+    const x = cx - w / 2 + (i / 48) * w, y = cy - (waveSample(wt, (i / 48) * 1.5) * h) / 2;
+    if (i) g.lineTo(x, y); else g.moveTo(x, y);
+  }
+  g.stroke();
+}
+function drawGrid() {
+  g.fillStyle = COL.ground; g.fillRect(0, 0, W, H);
+  g.font = MONO; g.lineWidth = 1;
+  g.textAlign = 'right'; g.textBaseline = 'bottom';
+  const marks = [100, 250, 500, 1000, 2000, 5000, 10000];
+  for (const f of marks) {
+    const y = Math.round((1 - Math.log(f / CUT_MIN) / Math.log(CUT_MAX / CUT_MIN)) * H) + 0.5;
+    g.strokeStyle = rgba(COL.line, 0.9); g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke();
+    if (y > 112) { g.fillStyle = rgba(COL.dim, 0.75); g.fillText(f >= 1000 ? (f / 1000) + 'k' : String(f), W - 8, y - 3); }
+  }
+  g.textAlign = 'center';
+  for (const s of tones) {
+    const x = Math.round((s / SPAN) * W) + 0.5, root = s % 12 === 0;
+    g.strokeStyle = root ? rgba(COL.lineHi, 0.95) : rgba(COL.line, 0.95);
+    g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke();
+    if (root) { g.fillStyle = rgba(COL.dim, 0.85); g.fillText(noteName(s), clamp(x, 18, W - 18), H - 64); }
+  }
+}
+function drawScope() {
+  const mid = H * 0.5, amp = H * 0.18 * 2.6;
+  g.lineWidth = 1.5; g.lineJoin = 'round'; g.strokeStyle = rgba(COL.wave, 0.5);
+  g.beginPath();
+  if (analyser) {
+    analyser.getByteTimeDomainData(scopeData);
+    let st = 0;
+    for (let i = 1; i < scopeData.length / 2; i++) { if (scopeData[i - 1] < 128 && scopeData[i] >= 128) { st = i; break; } }
+    const n = 512;
+    for (let i = 0; i < n; i++) {
+      const x = (i / (n - 1)) * W, y = mid - ((scopeData[st + i] - 128) / 128) * amp;
+      if (i) g.lineTo(x, y); else g.moveTo(x, y);
+    }
+  } else { g.moveTo(0, mid); g.lineTo(W, mid); }
+  g.stroke();
+}
+function strokeTrail(pts, now, life, baseW, rgb) {
+  while (pts.length && now - pts[0].t > life) pts.shift();
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i], al = 1 - (now - b.t) / life;
+    if (al <= 0) continue;
+    g.strokeStyle = rgba(rgb, Math.min(1, al) * 0.7);
+    g.lineWidth = baseW + Math.min(6, b.s * 3.5) * Math.min(1, al);
+    g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+  }
+}
+function drawEchoes(now) {
+  for (let i = echoes.length - 1; i >= 0; i--) {
+    const e = echoes[i], age = now - e.t0, life = 1100;
+    if (age < 0) continue;
+    if (age > life) { echoes.splice(i, 1); continue; }
+    const k = age / life;
+    g.strokeStyle = rgba(e.rgb, e.a * (1 - k)); g.lineWidth = 0.6 + 2 * (1 - k);
+    g.beginPath(); g.arc(e.x + e.ux * e.k * 28, e.y + e.uy * e.k * 28, 14 + k * 70, 0, Math.PI * 2); g.stroke();
+  }
+}
+function drawColumn(semis, a, rgb) {
+  const x = Math.round((semis / SPAN) * W) + 0.5;
+  g.fillStyle = rgba(rgb, 0.08 * a); g.fillRect(x - 10, 0, 20, H);
+  g.strokeStyle = rgba(rgb, 0.55 * a); g.lineWidth = 1;
+  g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke();
+}
+const hitPulse = (v, now) => (v && v.flash ? Math.exp(-Math.max(0, now - v.flash) / 140) * (now >= v.flash ? 1 : 0) : 0);
+function drawHeld(x, y, speed, pulse, Q, rgb, dim, glyph) {
+  const R = 22 + Q.width * 34 + 12 * (pulse || 0);
+  const grad = g.createRadialGradient(x, y, 0, x, y, R * 1.9);
+  grad.addColorStop(0, rgba(rgb, 0.38 * dim)); grad.addColorStop(1, rgba(rgb, 0));
+  g.fillStyle = grad; g.beginPath(); g.arc(x, y, R * 1.9, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = rgba(rgb, 0.9 * dim); g.lineWidth = 2 + Math.min(3, speed * 2);
+  g.beginPath(); g.arc(x, y, R, 0, Math.PI * 2); g.stroke();
+  g.fillStyle = rgba(rgb, dim);
+  g.beginPath(); g.arc(x - R, y, 3.5, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.arc(x + R, y, 3.5, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.arc(x, y, 5, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = rgba(rgb, 0.28 * dim); g.lineWidth = 1;
+  g.beginPath(); g.moveTo(0, y + 0.5); g.lineTo(W, y + 0.5); g.stroke();
+  if (glyph) {
+    const gy = y - R - 34 > 112 ? y - R - 34 : y + R + 34;
+    drawGlyph(clamp(x, 40, W - 40), gy, 56, 18, Q, rgb);
+  }
+}
+function drawLatched(v, now) {
+  const rgb = v.layer.rgb, a = v.layer.on ? 1 : 0.4;
+  const pulse = 0.5 + 0.5 * Math.sin(now / 260 + v.id), R = 24 + v.Q.width * 20 + pulse * 6 + 14 * hitPulse(v, now);
+  g.setLineDash([4, 5]); g.strokeStyle = rgba(rgb, 0.9 * a); g.lineWidth = 1.6;
+  g.beginPath(); g.arc(v.px, v.py, R, 0, Math.PI * 2); g.stroke();
+  g.setLineDash([]);
+  g.fillStyle = rgba(rgb, 0.95 * a); g.beginPath(); g.arc(v.px, v.py, 5, 0, Math.PI * 2); g.fill();
+  g.font = MONO; g.textAlign = 'center'; g.textBaseline = 'top';
+  g.fillStyle = rgba(rgb, 0.9 * a); g.fillText('HOLD', v.px, v.py + R + 6);
+}
+/* A strip under the top bar: the shared cycle with a playhead, one row per layer that has a loop. */
+function drawTransport() {
+  const y0 = 58;
+  g.fillStyle = rgba(COL.line, 0.9); g.fillRect(0, y0, W, 1);
+  if (!ctx) return;
+  const nowT = ctx.currentTime;
+  if (T.len) {
+    layers.forEach((L, i) => {
+      if (!L.loop) return;
+      g.fillStyle = rgba(L.rgb, L.on ? 0.95 : 0.3);
+      const y = y0 + 4 + i * 4;
+      for (const m of L.loop.marks) g.fillRect(m[0] * W, y, Math.max(2, (m[1] - m[0]) * W), 2);
+    });
+    const x = (phaseAt(nowT) / T.len) * W;
+    g.fillStyle = rgba(COL.dim, 0.95); g.fillRect(x - 0.5, y0, 1.5, 6 + layers.length * 4);
+  }
+  g.font = MONO; g.textAlign = 'right'; g.textBaseline = 'top';
+  let label = '', col = COL.dim;
+  if (rec.state === 'armed') { label = Math.floor(performance.now() / 450) % 2 ? '' : 'ARMED  TOUCH TO START'; col = COL.rec; }
+  else if (rec.state === 'recording') {
+    col = COL.rec;
+    if (rec.first) label = 'REC  ' + (nowT - T.start).toFixed(1) + ' s';
+    else {
+      label = 'REC  ' + Math.min(nowT - rec.t0, T.len).toFixed(1) + ' / ' + T.len.toFixed(1) + ' s';
+      const p0 = phaseAt(rec.t0), p1 = phaseAt(nowT);
+      g.fillStyle = rgba(COL.rec, 0.95);
+      if (p1 >= p0) g.fillRect((p0 / T.len) * W, y0, ((p1 - p0) / T.len) * W, 2);
+      else { g.fillRect((p0 / T.len) * W, y0, W - (p0 / T.len) * W, 2); g.fillRect(0, y0, (p1 / T.len) * W, 2); }
+    }
+  } else if (T.len) label = 'LOOP  ' + T.len.toFixed(1) + ' s';
+  if (label) { g.fillStyle = rgba(col, 0.95); g.fillText(label, W - 16, 92); }
+}
+function draw(now) {
+  drawGrid();
+  drawScope();
+  const hands = allHands();
+  for (const v of active) if (!v.released) drawColumn(v.semis, (v.latched ? 0.7 : 1) * (v.layer.on ? 1 : 0.4), v.layer.rgb);
+  for (let i = ghosts.length - 1; i >= 0; i--) {
+    strokeTrail(ghosts[i].pts, now, 650, 2, ghosts[i].rgb);
+    if (!ghosts[i].pts.length) ghosts.splice(i, 1);
+  }
+  drawEchoes(now);
+  for (const h of hands) for (const p of h.ptrs.values()) strokeTrail(p.trail, now, 650, 2, h.layer.rgb);
+  for (const v of active) if (v.latched && !v.released) drawLatched(v, now);
+  for (const h of hands) {
+    if (!h.layer || !h.ptrs.size) continue;
+    const pts = Array.from(h.ptrs.values()), rgb = h.layer.rgb, Q = h.layer.patch, dim = h.live ? 1 : 0.75;
+    if (pts.length === 2) {
+      g.strokeStyle = rgba(COL.wave, 0.6); g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(pts[0].x, pts[0].y); g.lineTo(pts[1].x, pts[1].y); g.stroke();
+    }
+    for (const p of pts) {
+      if (p.voice && !p.voice.released) drawHeld(p.cx, p.cy, p.speed, hitPulse(p.voice, now), Q, rgb, dim, h.live);
+      if (pts.length === 2) {
+        g.strokeStyle = rgba(COL.wave, 0.9); g.lineWidth = 2;
+        g.beginPath(); g.arc(p.x, p.y, 18, 0, Math.PI * 2); g.stroke();
+      }
+    }
+  }
+  if (!everPlayed && started) {
+    g.font = MONO; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = rgba(COL.dim, 0.9); g.fillText('TOUCH TO PLAY', W / 2, H * 0.64);
+    g.fillStyle = rgba(COL.dim, 0.6); g.fillText('TWO FINGERS TO SCULPT', W / 2, H * 0.64 + 20);
+  }
+  drawTransport();
+}
+
+/* ---------- readout ---------- */
+const rLayer = $('#rLayer'), rNote = $('#rNote'), rFreq = $('#rFreq'), rCut = $('#rCut'), rWave = $('#rWave'), rWidth = $('#rWidth');
+let lastRO = 0;
+function updateReadout(now) {
+  if (now - lastRO < 90) return;
+  lastRO = now;
+  const L = curL();
+  if (lastInfo) { rNote.textContent = noteLabel(lastInfo.semis); rFreq.textContent = Math.round(lastInfo.freq) + ' Hz'; rCut.textContent = fmtHz(cutHz(lastInfo.cutN)); }
+  rLayer.textContent = auto.on ? 'Demo' : (activeIdx + 1) + ' ' + (L.preset >= 0 ? PRESETS[L.preset].name : 'Custom');
+  rWave.textContent = waveName(L.patch);
+  rWidth.textContent = Math.round(L.patch.width * 100) + '%';
+}
+
+function tick(now) {
+  if (ctx && started) {
+    runPlayback();
+    recTick();
+    updateVoices();
+    if (timbreDirty) {
+      for (const v of active) applyTimbre(v);
+      timbreDirty = false;
+      if (refireL) { const t = ctx.currentTime + 0.01; for (const v of active) if (!v.released && v.layer === refireL) fire(v, t); refireL = null; }
+    }
+    runLoops();
+  }
+  draw(now);
+  updateReadout(now);
+  requestAnimationFrame(tick);
+}
+
+/* ---------- layer bar ---------- */
+const layersEl = $('#layers'), addBtn = $('#addBtn'), recBtn = $('#recBtn'), recLbl = $('#recLbl');
+const sheet = $('#sheet'), patchBtn = $('#patchBtn'), snapBtn = $('#snapBtn');
+const lyrEls = new Map();
+function renderLayers() {
+  layersEl.textContent = '';
+  lyrEls.clear();
+  layers.forEach(L => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'lyr'; b.style.setProperty('--c', L.hexc);
+    b.innerHTML = '<span class="dc"></span><i class="lm"></i>';
+    let timer = 0, longFired = false;
+    b.addEventListener('pointerdown', () => {
+      longFired = false; clearTimeout(timer);
+      timer = setTimeout(() => { longFired = true; if (auto.on) stopAuto(); setLayerOn(L, !L.on); }, 450);   // hold: switch without selecting
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(n => b.addEventListener(n, () => clearTimeout(timer)));
+    b.addEventListener('contextmenu', e => e.preventDefault());
+    b.addEventListener('click', () => { if (longFired) { longFired = false; return; } tapLayer(L); });
+    layersEl.appendChild(b);
+    lyrEls.set(L, b);
+  });
+  refreshLayers();
+}
+function refreshLayers() {
+  layers.forEach((L, i) => {
+    const b = lyrEls.get(L); if (!b) return;
+    const sel = i === activeIdx, recording = rec.state === 'recording' && rec.layer === L;
+    b.classList.toggle('sel', sel);
+    b.classList.toggle('has', !!L.loop);
+    b.classList.toggle('rec', recording);
+    b.setAttribute('aria-pressed', String(L.on));
+    b.setAttribute('aria-label', 'Layer ' + (i + 1) + ', ' + (L.on ? 'on' : 'off') + (sel ? ', selected' : '') + (L.loop ? ', has a loop' : '') + (recording ? ', recording' : ''));
+  });
+  addBtn.disabled = layers.length >= MAX_LAYERS;
+}
+function pulseLayerUI(L) {
+  const b = lyrEls.get(L);
+  if (!b || b.classList.contains('hit')) return;
+  b.classList.add('hit');
+  setTimeout(() => b.classList.remove('hit'), 110);
+}
+function tapLayer(L) {
+  if (auto.on) stopAuto();
+  if (L !== layers[activeIdx]) selectLayer(L);
+  else setLayerOn(L, !L.on);
+}
+function selectLayer(L) {
+  if (rec.state === 'recording' && rec.layer !== L) finishRec();
+  else if (rec.state === 'armed' && rec.layer !== L) cancelRec();
+  activeIdx = layers.indexOf(L);
+  resetDel();
+  if (!L.on) setLayerOn(L, true);
+  syncUI(); refreshLayers();
+}
+function addLayer() {
+  if (!ctx || layers.length >= MAX_LAYERS) return;
+  if (auto.on) stopAuto();
+  if (rec.state === 'recording') finishRec(); else if (rec.state === 'armed') cancelRec();
+  const src = layers[activeIdx];
+  const L = newLayer(src.patch, src.preset, true);      // a new layer starts with the sound of the one you were on
+  layers.push(L);
+  activeIdx = layers.length - 1;
+  applyFx(L); resetDel(); renderLayers(); syncUI();
+}
+function deleteLayer(L) {
+  if (layers.length <= 1) return;
+  if (rec.layer === L && rec.state !== 'idle') cancelRec();
+  silenceHand(L.hand);
+  active.slice().forEach(v => { if (v.layer === L) releaseVoice(v, 0.15); });
+  const i = layers.indexOf(L);
+  layers.splice(i, 1);
+  destroyLayerNodes(L);
+  activeIdx = clamp(i - 1, 0, layers.length - 1);
+  if (!layers.some(l => l.loop)) T.len = 0;
+  updateRel(); renderLayers(); syncUI();
+}
+function refreshRec() {
+  const st = rec.state;
+  recBtn.dataset.state = st;
+  recLbl.textContent = st === 'recording' ? 'Stop' : st === 'armed' ? 'Armed' : 'Rec';
+  recBtn.setAttribute('aria-pressed', String(st !== 'idle'));
+  refreshLayers();
+}
+addBtn.addEventListener('click', addLayer);
+recBtn.addEventListener('click', toggleRec);
+
+/* ---------- patch sheet ---------- */
+const CTRL = [
+  { k: 'att',   name: 'Attack',        to: n => 0.003 * Math.pow(400, n), from: v => Math.log(v / 0.003) / Math.log(400), fmt: v => (v < 0.1 ? Math.round(v * 1000) + ' ms' : v.toFixed(2) + ' s') },
+  { k: 'rel',   name: 'Release',       to: n => 0.05 * Math.pow(80, n),   from: v => Math.log(v / 0.05) / Math.log(80),   fmt: v => v.toFixed(2) + ' s' },
+  { k: 'dec',   name: 'Decay',         to: n => (n < 0.03 ? 0 : 0.008 * Math.pow(400, (n - 0.03) / 0.97)), from: v => (v <= 0 ? 0 : 0.03 + 0.97 * Math.log(v / 0.008) / Math.log(400)), fmt: v => (v <= 0 ? 'Sustain' : v < 1 ? Math.round(v * 1000) + ' ms' : v.toFixed(2) + ' s') },
+  { k: 'noise', name: 'Noise',         to: n => n,        from: v => v,        fmt: v => Math.round(v * 100) + '%' },
+  { k: 'loop',  name: 'Roll',          to: n => (n < 0.03 ? 0 : 0.05 * Math.pow(24, (n - 0.03) / 0.97)), from: v => (v <= 0 ? 0 : 0.03 + 0.97 * Math.log(v / 0.05) / Math.log(24)), fmt: v => (v <= 0 ? 'Off' : Math.round(v * 1000) + ' ms') },
+  { k: 'drive', name: 'Drive',         to: n => n,        from: v => v,        fmt: v => Math.round(v * 100) + '%' },
+  { k: 'dTime', name: 'Echo time',     to: n => 0.08 * Math.pow(11.25, n), from: v => Math.log(v / 0.08) / Math.log(11.25), fmt: v => Math.round(v * 1000) + ' ms' },
+  { k: 'dFb',   name: 'Echo feedback', to: n => n * 0.88, from: v => v / 0.88, fmt: v => Math.round(v * 100) + '%' },
+  { k: 'dMix',  name: 'Echo mix',      to: n => n * 0.85, from: v => v / 0.85, fmt: v => Math.round(v * 100) + '%' },
+  { k: 'rMix',  name: 'Reverb',        to: n => n * 0.9,  from: v => v / 0.9,  fmt: v => Math.round(v * 100) + '%' }
+];
+function chip(parent, label, onClick) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'chip'; b.textContent = label; b.setAttribute('aria-pressed', 'false');
+  b.addEventListener('click', onClick);
+  parent.appendChild(b);
+  return b;
+}
+function sliderRow(parent, id, label, onInput) {
+  const row = document.createElement('div'); row.className = 'srow';
+  const lab = document.createElement('label'); lab.htmlFor = id; lab.textContent = label;
+  const out = document.createElement('output'); out.htmlFor = id;
+  const inp = document.createElement('input'); inp.type = 'range'; inp.id = id; inp.min = '0'; inp.max = '1'; inp.step = '0.002';
+  inp.addEventListener('input', () => onInput(parseFloat(inp.value), out));
+  row.append(lab, out, inp);
+  parent.appendChild(row);
+  return { inp, out };
+}
+const presetChips = PRESETS.map((pr, i) => chip($('#presetChips'), pr.name, () => applyPreset(i)));
+const scaleKeys = Object.keys(SCALES);
+const scaleChips = scaleKeys.map(k => chip($('#scaleChips'), k, () => { P.scale = k; rebuildTones(); syncUI(); }));
+const rootChips = NOTE_NAMES.map((n, i) => chip($('#rootChips'), n, () => { P.root = i; syncUI(); }));
+const REGS = [['Low', -1], ['Mid', 0], ['High', 1]];
+const regChips = REGS.map(r => chip($('#regChips'), r[0], () => { P.reg = r[1]; syncUI(); }));
+
+const levelEl = sliderRow($('#levelRow'), 'ctl-level', 'Level', (n, out) => {
+  const L = layers[activeIdx];
+  L.level = n * 1.2; out.textContent = Math.round(L.level * 100) + '%'; setLevel(L);
+});
+const sliderEls = CTRL.map(c => {
+  const el = sliderRow($('#sliders'), 'ctl-' + c.k, c.name, (n, out) => {
+    const L = curL();
+    L.patch[c.k] = c.to(n);
+    out.textContent = c.fmt(L.patch[c.k]);
+    applyFx(L);
+    timbreDirty = true;
+    clearPreset(L);
+  });
+  return { c, inp: el.inp, out: el.out };
+});
+
+function clearPreset(L) {
+  if (L.preset < 0) return;
+  L.preset = -1;
+  if (L === curL()) presetChips.forEach(b => b.setAttribute('aria-pressed', 'false'));
+}
+function syncUI() {
+  const L = curL(), Q = L.patch;
+  presetChips.forEach((b, i) => b.setAttribute('aria-pressed', String(i === L.preset)));
+  scaleChips.forEach((b, i) => b.setAttribute('aria-pressed', String(scaleKeys[i] === P.scale)));
+  rootChips.forEach((b, i) => b.setAttribute('aria-pressed', String(i === P.root)));
+  regChips.forEach((b, i) => b.setAttribute('aria-pressed', String(REGS[i][1] === P.reg)));
+  sliderEls.forEach(s => { s.inp.value = String(clamp(s.c.from(Q[s.c.k]), 0, 1)); s.out.textContent = s.c.fmt(Q[s.c.k]); });
+  levelEl.inp.value = String(clamp(L.level / 1.2, 0, 1)); levelEl.out.textContent = Math.round(L.level * 100) + '%';
+  snapBtn.setAttribute('aria-pressed', String(P.snap));
+  $('#layerHead').style.setProperty('--c', L.hexc);
+  $('#layerName').textContent = auto.on ? 'Demo layer' : 'Layer ' + (activeIdx + 1) + (L.loop ? ' · ' + T.len.toFixed(1) + ' s loop' : ' · no loop');
+  $('#clearLoop').disabled = !L.loop || auto.on;
+  $('#delLayer').disabled = layers.length <= 1 || auto.on;
+}
+function applyPreset(i) {
+  const L = curL(), pr = PRESETS[i];
+  SOUND_KEYS.forEach(k => { L.patch[k] = pr[k]; });      // sound only: scale, root, register and snap stay as the player set them
+  applyFx(L); timbreDirty = true; refireL = L;
+  L.preset = i;
+  syncUI();
+}
+function toggleSheet(open) {
+  sheet.classList.toggle('open', open);
+  sheet.setAttribute('aria-hidden', String(!open));
+  patchBtn.setAttribute('aria-expanded', String(open));
+}
+let delArm = 0;
+const delBtn = $('#delLayer');
+function resetDel() { clearTimeout(delArm); delArm = 0; delBtn.textContent = 'Delete layer'; delBtn.classList.remove('warn'); }
+delBtn.addEventListener('click', () => {
+  if (!delArm) { delBtn.textContent = 'Tap again to delete'; delBtn.classList.add('warn'); delArm = setTimeout(resetDel, 3000); return; }
+  resetDel(); deleteLayer(layers[activeIdx]);
+});
+$('#clearLoop').addEventListener('click', () => clearLoop(layers[activeIdx]));
+patchBtn.addEventListener('click', () => { if (auto.on) stopAuto(); toggleSheet(!sheet.classList.contains('open')); });
+$('#closeSheet').addEventListener('click', () => toggleSheet(false));
+snapBtn.addEventListener('click', () => { stopAuto(); P.snap = !P.snap; syncUI(); });
+relBtn.addEventListener('click', () => { if (ctx) releaseAllLatched(); });
+
+/* ---------- autopilot: a ghost performer on a layer of its own, driving the same gesture pipeline ---------- */
+class Cancel {}
+const GA = 'auto-a', GB = 'auto-b';
+const pDown = (id, x, y) => hDown(autoHand, id, x, y);
+const pMove = (id, x, y) => hMove(autoHand, id, x, y);
+const pUp = id => hUp(autoHand, id);
+const autoBtn = $('#autoBtn'), autoLbl = $('#autoLbl'), capEl = $('#cap'), capT = $('#capT'), capS = $('#capS');
+const alive = tok => auto.on && auto.token === tok;
+const easeIO = k => (k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2);
+
+function wait(ms, tok) {
+  return new Promise((res, rej) => {
+    const end = performance.now() + ms;
+    (function step() {
+      if (!alive(tok)) return rej(new Cancel());
+      const left = end - performance.now();
+      if (left <= 0) return res();
+      setTimeout(step, Math.min(40, Math.max(1, left)));
+    })();
+  });
+}
+function path(id, fn, ms, tok, ease) {
+  return new Promise((res, rej) => {
+    const t0 = performance.now();
+    (function step(now) {
+      if (!alive(tok)) return rej(new Cancel());
+      const k = clamp((now - t0) / ms, 0, 1), pt = fn(ease ? ease(k) : k);
+      pMove(id, pt[0], pt[1]);
+      if (k < 1) requestAnimationFrame(step); else res();
+    })(t0);
+  });
+}
+// fn(k) returns [halfDistance, angle, midX, midY]; finger A sits opposite finger B around the midpoint
+function pair(fn, ms, tok, ease) {
+  return new Promise((res, rej) => {
+    const t0 = performance.now();
+    (function step(now) {
+      if (!alive(tok)) return rej(new Cancel());
+      const k = clamp((now - t0) / ms, 0, 1), s = fn(ease ? ease(k) : k);
+      const r = s[0], a = s[1], mx = s[2], my = s[3];
+      pMove(GA, mx - r * Math.cos(a), my - r * Math.sin(a));
+      pMove(GB, mx + r * Math.cos(a), my + r * Math.sin(a));
+      if (k < 1) requestAnimationFrame(step); else res();
+    })(t0);
+  });
+}
+function cap(t, s) { capT.textContent = t; capS.textContent = s; capEl.classList.add('on'); }
+
+async function perform(tok) {
+  const X = n => n * W, Y = n => n * H, nx = i => tones[clamp(i, 0, tones.length - 1)] / SPAN;
+  const w = ms => wait(ms, tok);
+  const tap = async (i, y, ms) => { pDown(GA, X(nx(i)), Y(y)); await w(ms); pUp(GA); };
+
+  // 1. drag
+  P.snap = true; syncUI();
+  applyPreset(0);
+  cap('Drag', 'Left and right sets pitch. Up and down opens the filter.');
+  await w(1000);
+  pDown(GA, X(0.12), Y(0.78));
+  await path(GA, k => [X(lerp(0.12, 0.88, k)), Y(0.52 + 0.26 * Math.cos(k * Math.PI * 2.4))], 4600, tok, easeIO);
+  pUp(GA); await w(1000);
+
+  // 2. taps
+  applyPreset(2);
+  cap('Pluck', 'Tap the columns to play notes. Each preset changes the whole voice.');
+  const phrase = [[4, 0.5], [6, 0.4], [7, 0.45], [9, 0.3], [7, 0.45], [6, 0.4], [4, 0.5], [2, 0.6], [4, 0.45], [7, 0.35], [9, 0.25], [11, 0.3]];
+  for (const ph of phrase) { await tap(ph[0], ph[1], 110); await w(170); }
+  await w(900);
+
+  // 3. scrub
+  applyPreset(1);
+  cap('Scrub', 'Move fast and the filter starts to squeal.');
+  pDown(GA, X(nx(6)), Y(0.5)); await w(300);
+  await path(GA, k => [X(nx(6)), Y(0.5 + 0.24 * Math.sin(k * Math.PI * 2 * 9))], 3600, tok);
+  await path(GA, k => [X(lerp(nx(6), nx(9), easeIO(k))), Y(0.5)], 900, tok);
+  await w(500); pUp(GA); await w(900);
+
+  // 4. hold and latch
+  applyPreset(4);
+  cap('Hold', 'Stay still for half a second and the note latches as a drone.');
+  pDown(GA, X(nx(2)), Y(0.64)); await w(1000); pUp(GA);
+  await w(900);
+  pDown(GA, X(nx(5)), Y(0.5)); await w(1000); pUp(GA);
+  await w(1400);
+
+  // 5. lead over the drones
+  applyPreset(0);
+  cap('Play over it', 'Drones keep sounding while you play on top.');
+  await w(600);
+  pDown(GA, X(nx(9)), Y(0.42));
+  await path(GA, k => [X(lerp(nx(9), nx(13), k)), Y(0.42 + 0.14 * Math.sin(k * Math.PI * 3))], 3200, tok, easeIO);
+  pUp(GA); await w(1200);
+
+  // 6. flicks
+  cap('Flick', 'Lift your finger while moving to throw the sound into the echo.');
+  const flicks = [[8, 0.68, 0.4], [10, 0.62, 0.3], [12, 0.56, 0.22]];
+  for (const f of flicks) {
+    pDown(GA, X(nx(f[0])), Y(f[1])); await w(130);
+    await path(GA, k => [X(nx(f[0])) + k * X(0.2), Y(lerp(f[1], f[2], k))], 150, tok);
+    pUp(GA); await w(1700);
+  }
+
+  // 7. two fingers: spread, twist, return
+  cap('Two fingers', 'Spread to widen the unison. Twist to morph from sine to square.');
+  const cx = X(0.5), cy = Y(0.56);
+  pDown(GA, cx - X(0.1), cy); await w(250);
+  pDown(GB, cx + X(0.1), cy); await w(700);
+  await pair(k => [X(0.1) + k * X(0.28), 0, cx, cy], 2400, tok, easeIO);
+  await pair(k => [X(0.38), k * Math.PI, cx + X(0.12) * Math.sin(k * Math.PI), cy - Y(0.14) * k], 4200, tok, easeIO);
+  await w(500);
+  await pair(k => [lerp(X(0.38), X(0.06), k), Math.PI * (1 - k), cx, cy - Y(0.14) * (1 - k)], 3000, tok, easeIO);
+  pUp(GB); await w(200); pUp(GA); await w(1200);
+
+  // 8. double tap clears the drones
+  cap('Double tap', 'Releases every latched drone at once.');
+  await w(1000);
+  pDown(GA, X(0.5), Y(0.2)); await w(60); pUp(GA); await w(110);
+  pDown(GA, X(0.5), Y(0.2)); await w(60); pUp(GA);
+  await w(2200);
+
+  // 9. percussion: single hits, then a latched note that rolls on its own
+  applyPreset(5);
+  cap('Percussion', 'Tap for a hit. Hold a note and it rolls until you let it go.');
+  await w(900);
+  for (const ph of [[3, 0.55], [5, 0.5], [7, 0.45], [5, 0.5]]) { await tap(ph[0], ph[1], 90); await w(300); }
+  await w(500);
+  pDown(GA, X(nx(1)), Y(0.62)); await w(1100); pUp(GA);
+  await w(1800);
+  cap('Percussion', 'Play over the loop. Every hit drops in pitch.');
+  for (const ph of [[7, 0.4], [9, 0.35], [11, 0.3], [9, 0.4], [7, 0.45], [5, 0.5]]) { await tap(ph[0], ph[1], 90); await w(290); }
+  await w(900);
+  cap('Double tap', 'Clears the loop.');
+  pDown(GA, X(0.5), Y(0.2)); await w(60); pUp(GA); await w(110);
+  pDown(GA, X(0.5), Y(0.2)); await w(60); pUp(GA);
+  await w(1800);
+
+  // 10. nature: filtered noise as wind, with sparse chirps on top
+  applyPreset(6);
+  cap('Nature', 'Wind and birdsong. Slide up and down to open the air.');
+  await w(800);
+  pDown(GA, X(nx(9)), Y(0.8));
+  await path(GA, k => [X(lerp(nx(9), nx(12), k)), Y(0.8 - 0.62 * Math.sin(k * Math.PI))], 6400, tok, easeIO);
+  await w(800); pUp(GA); await w(2800);
+
+  // 11. click and noise: bursts of a few milliseconds, the height picks the band
+  applyPreset(7);
+  cap('Click/Noise', 'Bursts of tone and static. Height picks the band.');
+  await w(700);
+  pDown(GA, X(0.08), Y(0.75));
+  await path(GA, k => [X(lerp(0.08, 0.92, k)), Y(0.75 - 0.55 * k + 0.12 * Math.sin(k * 40))], 4800, tok);
+  pUp(GA); await w(1600);
+
+  // 12. finale: free pitch, heavy drive, long throw
+  applyPreset(3);
+  P.snap = false; syncUI();
+  cap('Siren', 'With snap off, pitch glides freely between notes.');
+  await w(800);
+  pDown(GA, X(0.08), Y(0.82));
+  await path(GA, k => [X(lerp(0.08, 0.92, k * k)), Y(0.82 - 0.55 * Math.sin(k * Math.PI) + 0.04 * Math.sin(k * 60))], 5200, tok);
+  pUp(GA);
+  await w(3000);
+}
+
+async function runAuto(tok) {
+  try {
+    while (alive(tok)) { await perform(tok); await wait(1600, tok); }
+  } catch (e) {
+    if (!(e instanceof Cancel)) { console.error(e); if (auto.token === tok) stopAuto(); }
+  }
+}
+function setAutoUI() {
+  autoBtn.setAttribute('aria-pressed', String(auto.on));
+  autoLbl.textContent = auto.on ? 'Stop' : 'Auto';
+}
+let autoSaved = null;
+function startAuto() {
+  if (!started || !ctx || auto.on) return;
+  toggleSheet(false);
+  ensureRunning();
+  if (rec.state === 'recording') finishRec(); else if (rec.state === 'armed') cancelRec();
+  releaseAllLatched();
+  layers.forEach(L => silenceHand(L.hand));          // recorded loops rest while the show plays
+  // The show plays on a layer of its own, in a fixed key and scale. Your layers and settings come back when it stops.
+  autoSaved = Object.assign({}, P);
+  P.scale = 'Minor pent'; P.root = 9; P.reg = 0; P.snap = true; rebuildTones();
+  demoLayer = newLayer(PRESETS[0], 0, false);
+  autoHand.layer = demoLayer;
+  auto.on = true;
+  const tok = ++auto.token;
+  syncUI(); refreshLayers(); setAutoUI();
+  runAuto(tok);
+}
+function stopAuto() {
+  if (!auto.on) return;
+  auto.on = false; auto.token++;
+  silenceHand(autoHand);
+  if (demoLayer) {
+    releaseAllLatched(demoLayer);
+    active.slice().forEach(v => { if (v.layer === demoLayer) releaseVoice(v, 0.3); });
+    destroyLayerNodes(demoLayer);
+  }
+  demoLayer = null; autoHand.layer = null;
+  if (autoSaved) { Object.assign(P, autoSaved); autoSaved = null; rebuildTones(); }
+  layers.forEach(L => { L.needSync = true; });
+  capEl.classList.remove('on');
+  syncUI(); refreshLayers(); setAutoUI();
+}
+autoBtn.addEventListener('click', () => { if (auto.on) stopAuto(); else startAuto(); });
+
+/* ---------- intro and start ---------- */
+const intro = $('#intro'), startBtn = $('#startBtn');
+function begin() {
+  if (!initAudio()) { $('#audioErr').hidden = false; return false; }
+  ensureRunning();
+  started = true;
+  intro.hidden = true;
+  try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); } catch (_) {}
+  return true;
+}
+startBtn.addEventListener('click', begin);
+$('#demoBtn').addEventListener('click', () => { if (begin()) startAuto(); });
+$('#helpBtn').addEventListener('click', () => {
+  if (auto.on) stopAuto();
+  toggleSheet(false);
+  startBtn.textContent = started ? 'Back to playing' : 'Start playing';
+  intro.hidden = false;
+});
+document.addEventListener('visibilitychange', () => {
+  if (!ctx) return;
+  if (document.hidden) { if (ctx.suspend) ctx.suspend().catch(() => {}); }
+  else ctx.resume().catch(() => {});
+});
+
+layers.push(newLayer(PRESETS[0], 0, true));
+renderLayers();
+syncUI();
+refreshRec();
+requestAnimationFrame(tick);
+})();
+</script>
+
 </body>
 </html>
