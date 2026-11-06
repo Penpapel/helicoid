@@ -211,16 +211,20 @@ body {
     <div class="group"><h3>Register</h3><div class="chips" id="regChips"></div></div>
     <div class="group"><h3>Shape and effects</h3><div class="sliders" id="sliders"></div></div>
     <div class="group" id="clickGroup">
-      <h3>Click</h3>
+      <h3>Click and timing</h3>
       <div class="sliders" id="clickRows"></div>
       <div class="chips" id="clickChips" style="margin-top:8px"></div>
       <p class="note" id="clickNote" style="margin-top:10px"></p>
+      <div class="sliders" id="latRows" style="margin-top:12px"></div>
+      <p class="note" id="latNote" style="margin-top:6px"></p>
     </div>
     <div class="group" id="xpGroup">
       <h3>Export</h3>
       <div class="chips" id="xpLen" role="group" aria-label="Bounce length"></div>
       <div class="chips" style="margin-top:8px">
         <button class="chip" id="xpBounce" type="button">Bounce loop</button>
+        <button class="chip" id="xpVideo" type="button">Bounce video</button>
+        <button class="chip" id="xpVTake" type="button">Video take</button>
         <button class="chip" id="xpTake" type="button">Record take</button>
         <button class="chip" id="xpMidi" type="button">MIDI</button>
       </div>
@@ -882,14 +886,14 @@ const phaseAt = t => (T.len ? (((t - T.start) % T.len) + T.len) % T.len : 0);
 function recEvent(k, p) {
   if (rec.state === 'armed' && k === 'd' && !rec.startAt) beginRecording(p.slot);
   if (rec.state !== 'recording' || rec.layer !== liveHand.layer) return;
-  const t = ctx.currentTime;
-  rec.events.push({ t: rec.first ? t - T.start : phaseAt(t), k, s: p.slot, x: p.x / W, y: p.y / H });
+  const t = ctx.currentTime - lat();                      // what you heard was already late by the speaker delay, so the take is shifted back by it
+  rec.events.push({ t: rec.first ? Math.max(0, t - T.start) : phaseAt(t), k, s: p.slot, x: p.x / W, y: p.y / H });
   if (k === 'd') rec.open.add(p.slot); else if (k === 'u') rec.open.delete(p.slot);
 }
 function beginRecording(skipSlot) {
   const now = ctx.currentTime, L = rec.layer;
   rec.events = []; rec.open = new Set();
-  if (!T.len) { rec.first = true; T.start = rec.startAt || now; }
+  if (!T.len) { rec.first = true; T.start = rec.startAt || (now - lat()); }
   else { rec.first = false; rec.t0 = now; silenceHand(L.hand); }
   rec.state = 'recording'; rec.startAt = 0; rec.endAt = 0;
   if (!L.on) setLayerOn(L, true);
@@ -1173,7 +1177,7 @@ function draw(now) {
       }
     }
   }
-  if (!everPlayed && started) {
+  if (!everPlayed && started && !vrec) {
     g.font = MONO; g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillStyle = rgba(COL.dim, 0.9); g.fillText('TOUCH TO PLAY', W / 2, H * 0.64);
     g.fillStyle = rgba(COL.dim, 0.6); g.fillText('TWO FINGERS TO SCULPT', W / 2, H * 0.64 + 20);
@@ -1200,6 +1204,7 @@ function tick(now) {
     composerTick();
     metTick();
     exportTick(now);
+    videoTick();
     recTick();
     updateVoices();
     if (timbreDirty) {
@@ -2034,7 +2039,7 @@ function composerTick() {
    so the tails of the previous pass are in it too and the file repeats seamlessly. */
 const xp = { mode: 'idle', kind: '', cycles: 1, node: null, sink: null, chunks: [], n: 0, t0: 0, i0: 0, total: 0, tailEnd: 0, ready: null, saving: false, msg: '' };
 const MAX_TAKE_S = 300;
-const xpBounceBtn = $('#xpBounce'), xpTakeBtn = $('#xpTake'), xpMidiBtn = $('#xpMidi'), xpSaveBtn = $('#xpSave'), xpStatus = $('#xpStatus'), xpPill = $('#xpPill');
+const xpBounceBtn = $('#xpBounce'), xpTakeBtn = $('#xpTake'), xpMidiBtn = $('#xpMidi'), xpVideoBtn = $('#xpVideo'), xpVTakeBtn = $('#xpVTake'), xpSaveBtn = $('#xpSave'), xpStatus = $('#xpStatus'), xpPill = $('#xpPill');
 const xpLenChips = [1, 2, 4, 8].map(n => chip($('#xpLen'), n === 1 ? '1 cycle' : n + ' cycles', () => { xp.cycles = n; refreshExport(); }));
 const hosted = !!(window.claude && typeof window.claude.use === 'function');
 let dlCap = null;
@@ -2132,6 +2137,7 @@ function finishCapture() {
 function clearReady() { xp.ready = null; xp.msg = ''; }
 function cancelCapture() {
   if (xp.mode === 'idle') return;
+  if (xp.kind === 'video') { cancelVideo(); return; }
   stopTap(); xp.mode = 'idle'; xp.chunks = []; xp.n = 0;
   refreshExport();
 }
@@ -2255,8 +2261,11 @@ async function getDownloads() {
 async function saveFile(name, blob) {
   const dl = await getDownloads();
   if (dl) {
-    const zip = makeZip([{ name, bytes: new Uint8Array(await blob.arrayBuffer()) }]);
-    try { await dl.save({ filename: name.replace(/\.[^.]+$/, '') + '.zip', data: zip }); return 'saved'; }
+    const direct = /\.(mp4|webm)$/.test(name);
+    try {
+      if (direct) await dl.save({ filename: name, data: blob });
+      else await dl.save({ filename: name.replace(/\.[^.]+$/, '') + '.zip', data: makeZip([{ name, bytes: new Uint8Array(await blob.arrayBuffer()) }]) });
+      return 'saved'; }
     catch (e) { if (e && e.code === 'declined') return 'declined'; }
   }
   const file = new File([blob], name, { type: blob.type });
@@ -2288,6 +2297,9 @@ const fmtClock = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padS
 function refreshExport() {
   const m = xp.mode, busy = m !== 'idle', hasLoop = layers.some(l => l.loop);
   xpBounceBtn.disabled = busy || !T.len;
+  xpVideoBtn.disabled = busy || !T.len;
+  xpVTakeBtn.disabled = busy && m !== 'vtake';
+  xpVTakeBtn.textContent = m === 'vtake' ? 'Stop video' : 'Video take';
   xpMidiBtn.disabled = !hasLoop || xp.saving;
   xpTakeBtn.disabled = busy && m !== 'take';
   xpTakeBtn.textContent = m === 'take' ? 'Stop take' : 'Record take';
@@ -2298,28 +2310,169 @@ function refreshExport() {
   if (m === 'prep') st = 'Starting…';
   else if (m === 'wait') { st = 'Waiting for the loop to come round…'; pill = 'Bounce starts with the loop · tap to cancel'; }
   else if (m === 'bounce') { const pct = Math.min(99, Math.floor(100 * xp.n / (xp.cycles * T.len * sr))); st = 'Bouncing ' + pct + '%…'; pill = 'Bouncing ' + pct + '% · tap to cancel'; }
+  else if (m === 'vwait') { st = 'Waiting for the loop to come round…'; pill = 'Video starts with the loop · tap to cancel'; }
+  else if (m === 'vrec' || m === 'vfin') { const pct = Math.max(0, Math.min(99, Math.floor(100 * (ctx.currentTime - xp.t0) / (xp.tEnd - xp.t0)))); st = 'Recording video ' + pct + '%. Keep this tab in front.'; pill = '● Video ' + pct + '% · tap to cancel'; }
+  else if (m === 'vtake') { const e = fmtClock(ctx.currentTime - xp.t0); st = 'Recording video ' + e + '. Keep this tab in front.'; pill = '● Video ' + e + ' · tap to stop'; }
+  else if (m === 'vtail') { st = 'Letting the tails ring out…'; pill = 'Finishing…'; }
   else if (m === 'take') { st = 'Recording ' + fmtClock(el); pill = '● ' + fmtClock(el) + ' · tap to stop'; }
   else if (m === 'tail') { st = 'Letting the tails ring out…'; pill = 'Finishing…'; }
-  else if (xp.ready) { st = 'Ready: ' + fmtClock(xp.ready.secs) + ' of audio.' + (dlCap ? ' It saves as a zip with the WAV inside.' : ''); pill = 'Ready · tap to save'; pillGo = true; }
+  else if (xp.ready) { st = xp.ready.video ? 'Ready: ' + fmtClock(xp.ready.secs) + ' of video with sound.' : 'Ready: ' + fmtClock(xp.ready.secs) + ' of audio.' + (dlCap ? ' It saves as a zip with the WAV inside.' : ''); pill = 'Ready · tap to save'; pillGo = true; }
   else if (xp.msg) st = xp.msg;
   else if (!T.len) st = 'Bounce needs a loop. Record one with Rec, or use Auto-compose. Take records whatever you play.';
-  else st = 'Bounce saves ' + xp.cycles + ' cycle' + (xp.cycles > 1 ? 's' : '') + ' (' + (xp.cycles * T.len).toFixed(1) + ' s) of the mix as a WAV that repeats seamlessly. Take records whatever you play. MIDI saves the loops as notes.';
+  else st = 'Bounce saves ' + xp.cycles + ' cycle' + (xp.cycles > 1 ? 's' : '') + ' (' + (xp.cycles * T.len).toFixed(1) + ' s) of the mix as a WAV that repeats seamlessly. Take records whatever you play. Bounce video records the field and the sound together, same cycles; Video take records whatever you play. MIDI saves the loops as notes.';
   if (xp.ready && xp.msg && m === 'idle') st = xp.msg + ' ' + st;
   xpStatus.textContent = st;
   xpSaveBtn.hidden = !xp.ready;
-  if (xp.ready) xpSaveBtn.textContent = 'Save ' + (dlCap ? xp.ready.name.replace(/\.[^.]+$/, '.zip') : xp.ready.name) + ' · ' + fmtSize(xp.ready.blob.size);
+  if (xp.ready) xpSaveBtn.textContent = 'Save ' + (dlCap && !xp.ready.video ? xp.ready.name.replace(/\.[^.]+$/, '.zip') : xp.ready.name) + ' · ' + fmtSize(xp.ready.blob.size);
   xpPill.hidden = !pill || (sheet.classList.contains('open') && !pillGo);
   xpPill.textContent = pill; xpPill.dataset.go = pillGo ? '1' : '';
 }
 xpBounceBtn.addEventListener('click', startBounce);
+xpVideoBtn.addEventListener('click', startVideo);
+xpVTakeBtn.addEventListener('click', () => { if (xp.mode === 'vtake') stopVideoTake(); else startVideoTake(); });
 xpTakeBtn.addEventListener('click', () => { if (xp.mode === 'take') stopTake(); else startTake(); });
 xpMidiBtn.addEventListener('click', saveMidi);
 xpSaveBtn.addEventListener('click', () => { if (xp.ready) doSave(xp.ready.name, xp.ready.blob); });
 xpPill.addEventListener('click', () => {
   if (xp.mode === 'take') stopTake();
-  else if (xp.mode === 'wait' || xp.mode === 'bounce') cancelCapture();
+  else if (xp.mode === 'vtake') stopVideoTake();
+  else if (['wait', 'bounce', 'vwait', 'vrec', 'vfin'].includes(xp.mode)) cancelCapture();
   else if (xp.ready) { doSave(xp.ready.name, xp.ready.blob); xpPill.hidden = true; }
 });
+
+/* ---------- video export: the field, the layer circles, the readout and the mix, recorded together ---------- */
+/* Each frame the field canvas is copied onto a recording canvas, and the layer circles and the readout (which are page elements, not
+   canvas) are drawn over it. That canvas and the master output go into one MediaRecorder, so picture and sound stay in sync.
+   Loop video starts on the cycle boundary of a loop that is already running and stops after the chosen number of cycles.
+   Video take starts at once and stops when you say, with a short tail for the reverb. The click is not in the clip. */
+let vrec = null;
+function videoMime() {
+  const c = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+  return window.MediaRecorder ? (c.find(m => MediaRecorder.isTypeSupported(m)) || '') : '';
+}
+function composeVideoFrame() {
+  const v = vrec; if (!v) return;
+  const c = v.cv, x = v.g, fr = field.getBoundingClientRect(), sc = c.width / Math.max(1, fr.width);
+  x.setTransform(1, 0, 0, 1, 0, 0);
+  x.drawImage(field, 0, 0, c.width, c.height);
+  x.setTransform(sc, 0, 0, sc, 0, 0);
+  // layer circles, as they look in the bar: outlined when off, filled when on, a ring when selected, a bar when it holds a loop
+  layersEl.querySelectorAll('.lyr').forEach(b => {
+    const dc = b.querySelector('.dc'), r = dc.getBoundingClientRect(), col = getComputedStyle(b).getPropertyValue('--c').trim() || '#fff';
+    const cx = r.left - fr.left + r.width / 2, cy = r.top - fr.top + r.height / 2, rad = 11 * (b.classList.contains('hit') ? 1.22 : 1);
+    if (b.classList.contains('sel')) {
+      x.beginPath(); x.arc(cx, cy, rad + 5, 0, Math.PI * 2); x.strokeStyle = col; x.lineWidth = 1.5; x.stroke();
+    }
+    x.beginPath(); x.arc(cx, cy, rad, 0, Math.PI * 2);
+    if (b.getAttribute('aria-pressed') === 'true') { x.fillStyle = col; x.fill(); }
+    x.strokeStyle = col; x.lineWidth = 2; x.stroke();
+    if (b.classList.contains('has') || b.classList.contains('rec')) {
+      const rr = b.getBoundingClientRect();
+      x.fillStyle = b.classList.contains('rec') ? (getComputedStyle(b.querySelector('.lm')).backgroundColor || col) : col;
+      x.fillRect(rr.left - fr.left + rr.width / 2 - 6, rr.top - fr.top + rr.height - 3 - 3, 12, 3);
+    }
+  });
+  // readout
+  x.textBaseline = 'middle'; x.textAlign = 'left';
+  document.querySelectorAll('.readout dt, .readout dd').forEach(el => {
+    const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+    x.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+    if ('letterSpacing' in x) x.letterSpacing = cs.letterSpacing === 'normal' ? '0px' : cs.letterSpacing;
+    x.fillStyle = cs.color;
+    x.fillText(cs.textTransform === 'uppercase' ? el.textContent.toUpperCase() : el.textContent, r.left - fr.left, r.top - fr.top + r.height / 2 + 0.5);
+  });
+  if ('letterSpacing' in x) x.letterSpacing = '0px';
+}
+function beginVideo(kind) {
+  if (!ctx || !started || xp.mode !== 'idle') return false;
+  if (kind === 'loop' && !T.len) return false;
+  const nope = () => { xp.msg = 'This browser cannot record video. Bounce loop still saves the sound.'; refreshExport(); return false; };
+  if (!window.MediaRecorder || !field.captureStream) return nope();
+  ensureRunning(); clearReady();
+  let dst = null, cs = null, rec = null, cv = null;
+  try {
+    cv = document.createElement('canvas'); cv.width = field.width; cv.height = field.height;
+    dst = ctx.createMediaStreamDestination(); outG.connect(dst);
+    cs = cv.captureStream(30);
+    const stream = new MediaStream(cs.getVideoTracks().concat(dst.stream.getAudioTracks()));
+    const mime = videoMime(), opt = { videoBitsPerSecond: 6e6, audioBitsPerSecond: 192e3 };
+    if (mime) opt.mimeType = mime;
+    rec = new MediaRecorder(stream, opt);
+  } catch (e) { try { if (dst) outG.disconnect(dst); } catch (_) {} return nope(); }
+  vrec = { rec, dst, cs, cv, g: cv.getContext('2d'), chunks: [], mime: rec.mimeType || videoMime() || 'video/webm', cancelled: false, kind };
+  rec.ondataavailable = e => { if (e.data && e.data.size) vrec.chunks.push(e.data); };
+  rec.onstop = finishVideo;
+  composeVideoFrame();
+  xp.kind = 'video';
+  if (sheet.classList.contains('open')) toggleSheet(false);       // so the performance is in view while it records
+  return true;
+}
+function startVideo() {
+  if (!T.len || !beginVideo('loop')) return;
+  const k = Math.ceil((ctx.currentTime + 0.6 - T.start) / T.len);
+  xp.t0 = T.start + k * T.len; xp.tEnd = xp.t0 + xp.cycles * T.len;
+  xp.mode = 'vwait';
+  refreshExport();
+}
+function startVideoTake() {
+  if (!beginVideo('take')) return;
+  try { vrec.rec.start(500); } catch (_) { cancelVideo(); xp.msg = 'Video recording could not start.'; refreshExport(); return; }
+  xp.t0 = ctx.currentTime; xp.tEnd = 0; xp.mode = 'vtake';
+  refreshExport();
+}
+function stopVideoTake() {
+  if (xp.mode !== 'vtake') return;
+  xp.mode = 'vtail'; xp.tEnd = ctx.currentTime + 1.5;               // let the reverb and echo ring out
+  refreshExport();
+}
+function videoTick() {
+  if (!vrec || !ctx) return;
+  composeVideoFrame();
+  const now = ctx.currentTime;
+  if (xp.mode === 'vwait' && now >= xp.t0 - 0.02) {
+    try { vrec.rec.start(500); xp.mode = 'vrec'; } catch (_) { cancelVideo(); xp.msg = 'Video recording could not start.'; refreshExport(); }
+  } else if (xp.mode === 'vrec' && now >= xp.tEnd) {
+    endVideo();
+  } else if (xp.mode === 'vtake' && now - xp.t0 >= MAX_TAKE_S) {
+    stopVideoTake();
+  } else if (xp.mode === 'vtail' && now >= xp.tEnd) {
+    endVideo();
+  }
+}
+function endVideo() {
+  xp.mode = 'vfin';
+  try { vrec.secs = Math.max(0.1, ctx.currentTime - xp.t0); vrec.rec.stop(); } catch (_) { cancelVideo(); }
+  refreshExport();
+}
+function teardownVideo() {
+  const v = vrec; vrec = null;
+  if (!v) return;
+  try { outG.disconnect(v.dst); } catch (_) {}
+  try { v.cs.getTracks().forEach(t => t.stop()); } catch (_) {}
+}
+function finishVideo() {
+  const v = vrec;
+  if (!v || v.cancelled) return;
+  const blob = new Blob(v.chunks, { type: v.mime.split(';')[0] });
+  const ext = /mp4/.test(v.mime) ? 'mp4' : 'webm';
+  const take = v.kind === 'take', secs = take ? v.secs : xp.cycles * T.len;
+  teardownVideo();
+  xp.mode = 'idle';
+  if (blob.size > 0) {
+    const name = take ? 'dactyl-video-take-' + Math.floor(secs / 60) + 'm' + String(Math.round(secs % 60)).padStart(2, '0') + 's.' + ext
+      : 'dactyl-video-' + xp.cycles + 'x-' + keyName() + '-' + T.len.toFixed(1) + 's.' + ext;
+    xp.ready = { name, blob, secs, video: true };
+    xp.msg = '';
+  } else xp.msg = 'The video came out empty. Try again with the tab in front.';
+  refreshExport();
+}
+function cancelVideo() {
+  const v = vrec;
+  if (v) { v.cancelled = true; try { if (v.rec.state !== 'inactive') v.rec.stop(); } catch (_) {} }
+  teardownVideo();
+  xp.mode = 'idle';
+  refreshExport();
+}
 let lastXp = 0;
 function exportTick(now) { if (xp.mode !== 'idle' && now - lastXp > 200) { lastXp = now; refreshExport(); } }
 
@@ -2403,11 +2556,42 @@ function refreshClick() {
   clvlRow.inp.value = String(mt.level); clvlRow.out.textContent = Math.round(mt.level * 100) + '%';
   beatChips.forEach((b, i) => b.setAttribute('aria-pressed', String([3, 4, 5][i] === mt.beats)));
   countChip.setAttribute('aria-pressed', String(mt.count));
+  refreshLat();
   $('#clickNote').textContent = follow ? 'The click follows the loop: beat one is the loop start, and the loop is ' + g0.bars + ' bar' + (g0.bars > 1 ? 's' : '') + ' at this tempo. Clear the loops to set a new tempo.'
     : mt.on ? 'Press Rec: it counts you in, starts on a downbeat, and trims the first loop to whole bars.'
     : 'Turn Click on in the controls, set the tempo, then press Rec.';
 }
 clickBtn.addEventListener('click', () => setClick(!mt.on));
+
+/* ---------- speaker delay (Bluetooth and other slow outputs) ---------- */
+/* Sound reaches a Bluetooth speaker 100 to 300 ms late. You play against what you hear, so a take is recorded that much late, and
+   it then comes back late again. The take is shifted earlier by this delay so it lines up with the click and the other layers.
+   The page cannot remove the delay itself: a wired output or a low-latency Bluetooth codec is the only way to do that. */
+const sd = { manual: null };
+try { const v = localStorage.getItem('dactyl.delay'); if (v !== null && v !== '') sd.manual = clamp(parseFloat(v) || 0, 0, 0.4); } catch (_) {}
+function lat() {
+  if (sd.manual !== null) return sd.manual;
+  return ctx ? clamp((ctx.outputLatency || 0), 0, 0.5) : 0;
+}
+const latRow = sliderRow($('#latRows'), 'ctl-lat', 'Speaker delay', (n, out) => {
+  sd.manual = Math.round(n * 400) / 1000; out.textContent = Math.round(sd.manual * 1000) + ' ms';
+  try { localStorage.setItem('dactyl.delay', String(sd.manual)); } catch (_) {}
+  refreshLat();
+});
+chip($('#latChips') || $('#clickChips'), 'Auto delay', () => {
+  sd.manual = null; try { localStorage.removeItem('dactyl.delay'); } catch (_) {}
+  refreshLat();
+});
+function refreshLat() {
+  const ms = Math.round(lat() * 1000), auto = sd.manual === null;
+  latRow.inp.value = String(clamp(lat() / 0.4, 0, 1));
+  latRow.out.textContent = (auto ? 'Auto ' : '') + ms + ' ms';
+  const hasAuto = ctx && typeof ctx.outputLatency === 'number';
+  $('#latNote').textContent = auto && !hasAuto
+    ? 'This browser does not report the speaker delay. On Bluetooth, raise it until a take you record against the click comes back in time.'
+    : 'Takes are shifted earlier by this delay so they land with the click. The delay itself stays: a wired output is the only way to remove it.';
+}
+try { navigator.mediaDevices.addEventListener('devicechange', () => setTimeout(refreshLat, 600)); } catch (_) {}
 
 /* ---------- intro and start ---------- */
 const intro = $('#intro'), startBtn = $('#startBtn');
